@@ -2,6 +2,11 @@ package io.quarkus.resteasy.reactive.server.test.multipart;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import jakarta.ws.rs.core.MediaType;
 
@@ -22,6 +27,7 @@ public class MultipartOutputUsingBlockingEndpointsTest extends AbstractMultipart
     private static final String EXPECTED_CONTENT_DISPOSITION_PART = "Content-Disposition: form-data; name=\"%s\"";
     private static final String EXPECTED_CONTENT_DISPOSITION_FILE_PART = "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"";
     private static final String EXPECTED_CONTENT_TYPE_PART = "Content-Type: %s";
+    private static final String PART_NAME_PATTERN = "Content-Disposition: form-data; name=\\\"(.*?)\\\"";
 
     @RegisterExtension
     static QuarkusUnitTest test = new QuarkusUnitTest()
@@ -81,6 +87,18 @@ public class MultipartOutputUsingBlockingEndpointsTest extends AbstractMultipart
         assertContainsValue(body, "values", MediaType.TEXT_PLAIN, "[one, two]");
 
         assertThat(extractable.header("Content-Type")).contains("boundary=");
+    }
+
+    @Test
+    public void testWithOrderedFormData() {
+        String response = RestAssured.get("/multipart/output/with-form-data")
+                .then()
+                .contentType(ContentType.MULTIPART)
+                .statusCode(200)
+                .extract().asString();
+
+        assertPartsOrder(response,
+                List.of("name", "part-with-filename", "custom-surname", "custom-status", "valuesx", "active"));
     }
 
     @Test
@@ -180,5 +198,11 @@ public class MultipartOutputUsingBlockingEndpointsTest extends AbstractMultipart
         assertThat(lines).anyMatch(line -> line.contains(String.format(EXPECTED_CONTENT_DISPOSITION_PART, name))
                 && line.contains(String.format(EXPECTED_CONTENT_TYPE_PART, contentType))
                 && line.contains(value.toString()));
+    }
+
+    private void assertPartsOrder(String body, List<String> expectedParts) {
+        assertIterableEquals(
+                expectedParts,
+                Pattern.compile(PART_NAME_PATTERN).matcher(body).results().map(r -> r.group(1)).collect(Collectors.toList()));
     }
 }
