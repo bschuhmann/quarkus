@@ -5,6 +5,7 @@ import static io.quarkus.oidc.runtime.OidcIdentityProvider.REFRESH_TOKEN_GRANT_R
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Base64.Encoder;
@@ -28,9 +29,12 @@ import io.quarkus.logging.Log;
 import io.quarkus.oidc.AuthorizationCodeTokens;
 import io.quarkus.oidc.IdTokenCredential;
 import io.quarkus.oidc.JavaScriptRequestChecker;
+import io.quarkus.oidc.OidcRedirectFilter;
+import io.quarkus.oidc.OidcRedirectFilter.OidcRedirectContext;
 import io.quarkus.oidc.OidcTenantConfig;
 import io.quarkus.oidc.OidcTenantConfig.Authentication;
 import io.quarkus.oidc.OidcTenantConfig.Authentication.ResponseMode;
+import io.quarkus.oidc.Redirect;
 import io.quarkus.oidc.SecurityEvent;
 import io.quarkus.oidc.UserInfo;
 import io.quarkus.oidc.common.runtime.OidcCommonUtils;
@@ -46,13 +50,13 @@ import io.quarkus.vertx.http.runtime.security.ChallengeData;
 import io.smallrye.jwt.algorithm.KeyEncryptionAlgorithm;
 import io.smallrye.jwt.build.Jwt;
 import io.smallrye.jwt.build.JwtClaimsBuilder;
+import io.smallrye.jwt.build.JwtSignatureBuilder;
 import io.smallrye.jwt.util.KeyUtils;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.MultiMap;
 import io.vertx.core.http.Cookie;
 import io.vertx.core.http.CookieSameSite;
 import io.vertx.core.http.HttpHeaders;
-import io.vertx.core.http.impl.CookieImpl;
 import io.vertx.core.http.impl.ServerCookie;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -61,6 +65,7 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
 
     public static final String SESSION_MAX_AGE_PARAM = "session-max-age";
     static final String AMP = "&";
+    static final String QUESTION_MARK = "?";
     static final String EQ = "=";
     static final String COOKIE_DELIM = "|";
     static final Pattern COOKIE_PATTERN = Pattern.compile("\\" + COOKIE_DELIM);
@@ -227,8 +232,10 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
 
                                 String finalErrorUri = errorUri.toString();
                                 LOG.debugf("Error URI: %s", finalErrorUri);
-                                return Uni.createFrom().failure(new AuthenticationRedirectException(finalErrorUri));
+                                return Uni.createFrom().failure(new AuthenticationRedirectException(
+                                        filterRedirect(context, tenantContext, finalErrorUri, Redirect.Location.ERROR_PAGE)));
                             }
+
                         });
             } else {
                 LOG.error(
@@ -240,6 +247,25 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
             return Uni.createFrom().failure(new AuthenticationCompletionException());
         }
 
+    }
+
+    private static String filterRedirect(RoutingContext context,
+            TenantConfigContext tenantContext, String redirectUri, Redirect.Location location) {
+        List<OidcRedirectFilter> redirectFilters = tenantContext.getOidcRedirectFilters(location);
+        if (!redirectFilters.isEmpty()) {
+            OidcRedirectContext redirectContext = new OidcRedirectContext(context, tenantContext.getOidcTenantConfig(),
+                    redirectUri, MultiMap.caseInsensitiveMultiMap());
+            for (OidcRedirectFilter filter : redirectFilters) {
+                filter.filter(redirectContext);
+            }
+            MultiMap queries = redirectContext.additionalQueryParams();
+            if (!queries.isEmpty()) {
+                String encoded = OidcCommonUtils.encodeForm(new io.vertx.mutiny.core.MultiMap(queries)).toString();
+                String sep = redirectUri.lastIndexOf("?") > 0 ? AMP : QUESTION_MARK;
+                redirectUri += (sep + encoded);
+            }
+        }
+        return redirectUri;
     }
 
     private Uni<SecurityIdentity> stateParamIsMissing(OidcTenantConfig oidcTenantConfig, RoutingContext context,
@@ -338,7 +364,7 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                                             .hasErrorCode(ErrorCodes.EXPIRED);
 
                                             if (!expired) {
-                                                LOG.errorf("ID token verification failure: %s", errorMessage(t));
+                                                logAuthenticationError(context, t);
                                                 return removeSessionCookie(context, configContext.oidcConfig)
                                                         .replaceWith(Uni.createFrom()
                                                                 .failure(t
@@ -356,14 +382,25 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                                         .call(() -> buildLogoutRedirectUriUni(context, configContext,
                                                                 currentIdToken));
                                             }
-                                            if (session.getRefreshToken() == null) {
+                                            if (!configContext.oidcConfig.token.refreshExpired) {
+                                                // Token has expired and the refresh is not allowed, check if the session expired page is available
+                                                if (configContext.oidcConfig.authentication.getSessionExpiredPath()
+                                                        .isPresent()) {
+                                                    return redirectToSessionExpiredPage(context, configContext);
+                                                }
                                                 LOG.debug(
-                                                        "Token has expired, token refresh is not possible because the refresh token is null");
+                                                        "Token has expired, token refresh is not allowed, redirecting to re-authenticate");
                                                 return Uni.createFrom()
                                                         .failure(new AuthenticationFailedException(t.getCause()));
                                             }
-                                            if (!configContext.oidcConfig.token.refreshExpired) {
-                                                LOG.debug("Token has expired, token refresh is not allowed");
+                                            if (session.getRefreshToken() == null) {
+                                                // Token has expired but no refresh token is available, check if the session expired page is available
+                                                if (configContext.oidcConfig.authentication.getSessionExpiredPath()
+                                                        .isPresent()) {
+                                                    return redirectToSessionExpiredPage(context, configContext);
+                                                }
+                                                LOG.debug(
+                                                        "Token has expired, token refresh is not possible because the refresh token is null");
                                                 return Uni.createFrom()
                                                         .failure(new AuthenticationFailedException(t.getCause()));
                                             }
@@ -405,10 +442,24 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                             }
                                         }
                                     }
+
                                 });
                     }
 
                 });
+    }
+
+    private Uni<SecurityIdentity> redirectToSessionExpiredPage(RoutingContext context, TenantConfigContext configContext) {
+        URI absoluteUri = URI.create(context.request().absoluteURI());
+        StringBuilder sessionExpired = new StringBuilder(buildUri(context,
+                isForceHttps(configContext.oidcConfig),
+                absoluteUri.getAuthority(),
+                configContext.oidcConfig.authentication.getSessionExpiredPath().get()));
+        String sessionExpiredUri = sessionExpired.toString();
+        LOG.debugf("Session Expired URI: %s", sessionExpiredUri);
+        return removeSessionCookie(context, configContext.oidcConfig)
+                .chain(() -> Uni.createFrom().failure(new AuthenticationRedirectException(
+                        filterRedirect(context, configContext, sessionExpiredUri, Redirect.Location.SESSION_EXPIRED_PAGE))));
     }
 
     private static String decryptIdTokenIfEncryptedByProvider(TenantConfigContext resolvedContext, String token) {
@@ -668,6 +719,8 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                         String authorizationURL = configContext.provider.getMetadata().getAuthorizationUri() + "?"
                                 + codeFlowParams.toString();
 
+                        authorizationURL = filterRedirect(context, configContext, authorizationURL,
+                                Redirect.Location.OIDC_AUTHORIZATION);
                         LOG.debugf("Code flow redirect to: %s", authorizationURL);
 
                         return Uni.createFrom().item(new ChallengeData(HttpResponseStatus.FOUND.code(), HttpHeaders.LOCATION,
@@ -761,7 +814,7 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                 LOG.errorf("ID token is not available in the authorization code grant response");
                                 return Uni.createFrom().failure(new AuthenticationCompletionException());
                             } else {
-                                tokens.setIdToken(generateInternalIdToken(configContext.oidcConfig, null, null,
+                                tokens.setIdToken(generateInternalIdToken(configContext, null, null,
                                         tokens.getAccessTokenExpiresIn()));
                                 internalIdToken = true;
                             }
@@ -788,7 +841,7 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                     public Uni<Void> apply(SecurityIdentity identity) {
                                         if (internalIdToken
                                                 && OidcUtils.cacheUserInfoInIdToken(resolver, configContext.oidcConfig)) {
-                                            tokens.setIdToken(generateInternalIdToken(configContext.oidcConfig,
+                                            tokens.setIdToken(generateInternalIdToken(configContext,
                                                     identity.getAttribute(OidcUtils.USER_INFO_ATTRIBUTE), null,
                                                     tokens.getAccessTokenExpiresIn()));
                                         }
@@ -824,7 +877,9 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                             String finalRedirectUri = finalUriWithoutQuery.toString();
                                             LOG.debugf("Removing code flow redirect parameters, final redirect URI: %s",
                                                     finalRedirectUri);
-                                            throw new AuthenticationRedirectException(finalRedirectUri);
+                                            throw new AuthenticationRedirectException(
+                                                    filterRedirect(context, configContext, finalRedirectUri,
+                                                            Redirect.Location.LOCAL_ENDPOINT_CALLBACK));
                                         } else {
                                             return identity;
                                         }
@@ -837,13 +892,23 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                             return tInner;
                                         }
 
-                                        LOG.errorf("ID token verification has failed: %s", errorMessage(tInner));
+                                        logAuthenticationError(context, tInner);
                                         return new AuthenticationCompletionException(tInner);
                                     }
                                 });
                     }
 
                 });
+    }
+
+    private static void logAuthenticationError(RoutingContext context, Throwable t) {
+        final String errorMessage = errorMessage(t);
+        final boolean accessTokenFailure = context.get(OidcUtils.CODE_ACCESS_TOKEN_FAILURE) != null;
+        if (accessTokenFailure) {
+            LOG.errorf("Access token verification has failed: %s.", errorMessage);
+        } else {
+            LOG.errorf("ID token verification has failed: %s", errorMessage);
+        }
     }
 
     private static boolean prepareNonceForVerification(RoutingContext context, OidcTenantConfig oidcConfig,
@@ -892,7 +957,7 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
         return null;
     }
 
-    private String generateInternalIdToken(OidcTenantConfig oidcConfig, UserInfo userInfo, String currentIdToken,
+    private String generateInternalIdToken(TenantConfigContext context, UserInfo userInfo, String currentIdToken,
             Long accessTokenExpiresInSecs) {
         JwtClaimsBuilder builder = Jwt.claims();
         if (currentIdToken != null) {
@@ -909,14 +974,26 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
         if (userInfo != null) {
             builder.claim(OidcUtils.USER_INFO_ATTRIBUTE, userInfo.getJsonObject());
         }
-        if (oidcConfig.authentication.internalIdTokenLifespan.isPresent()) {
-            builder.expiresIn(oidcConfig.authentication.internalIdTokenLifespan.get().getSeconds());
+        if (context.oidcConfig.authentication.internalIdTokenLifespan.isPresent()) {
+            builder.expiresIn(context.oidcConfig.authentication.internalIdTokenLifespan.get().getSeconds());
         } else if (accessTokenExpiresInSecs != null) {
             builder.expiresIn(accessTokenExpiresInSecs);
         }
-        builder.audience(oidcConfig.getClientId().get());
-        return builder.jws().header(INTERNAL_IDTOKEN_HEADER, true)
-                .sign(KeyUtils.createSecretKeyFromSecret(OidcCommonUtils.clientSecret(oidcConfig.credentials)));
+        builder.audience(context.oidcConfig.getClientId().get());
+
+        JwtSignatureBuilder sigBuilder = builder.jws().header(INTERNAL_IDTOKEN_HEADER, true);
+        String clientOrJwtSecret = OidcCommonUtils.getClientOrJwtSecret(context.oidcConfig.credentials);
+        if (clientOrJwtSecret != null) {
+            LOG.debug("Signing internal ID token with a configured client secret");
+            return sigBuilder.sign(KeyUtils.createSecretKeyFromSecret(clientOrJwtSecret));
+        } else if (context.provider.client.getClientJwtKey() instanceof PrivateKey) {
+            LOG.debug("Signing internal ID token with a configured JWT private key");
+            return sigBuilder.sign(OidcUtils.createSecretKeyFromDigest(((PrivateKey) context.provider.client.getClientJwtKey())
+                    .getEncoded()));
+        } else {
+            LOG.debug("Signing internal ID token with a generated secret key");
+            return sigBuilder.sign(context.getInternalIdTokenSecretKey());
+        }
     }
 
     private Uni<Void> processSuccessfulAuthentication(RoutingContext context,
@@ -1069,7 +1146,8 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
         }
         String stateCookieNameSuffix = configContext.oidcConfig.authentication.allowMultipleCodeFlows ? "_" + uuid : "";
         createCookie(context, configContext.oidcConfig,
-                getStateCookieName(configContext.oidcConfig) + stateCookieNameSuffix, cookieValue, 60 * 30);
+                getStateCookieName(configContext.oidcConfig) + stateCookieNameSuffix, cookieValue,
+                configContext.oidcConfig.authentication.stateCookieAge.toSeconds());
         return uuid;
     }
 
@@ -1115,18 +1193,9 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
 
     static ServerCookie createCookie(RoutingContext context, OidcTenantConfig oidcConfig,
             String name, String value, long maxAge, boolean sessionCookie) {
-        ServerCookie cookie = new CookieImpl(name, value);
-        cookie.setHttpOnly(true);
-        cookie.setSecure(oidcConfig.authentication.cookieForceSecure || context.request().isSSL());
-        cookie.setMaxAge(maxAge);
-        LOG.debugf(name + " cookie 'max-age' parameter is set to %d", maxAge);
-        Authentication auth = oidcConfig.getAuthentication();
-        OidcUtils.setCookiePath(context, auth, cookie);
-        if (auth.cookieDomain.isPresent()) {
-            cookie.setDomain(auth.getCookieDomain().get());
-        }
+        ServerCookie cookie = OidcUtils.createCookie(context, oidcConfig, name, value, maxAge);
         if (sessionCookie) {
-            cookie.setSameSite(CookieSameSite.valueOf(auth.cookieSameSite.name()));
+            cookie.setSameSite(CookieSameSite.valueOf(oidcConfig.authentication.cookieSameSite.name()));
         }
         context.response().addCookie(cookie);
         return cookie;
@@ -1183,12 +1252,20 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                     public Uni<SecurityIdentity> apply(final AuthorizationCodeTokens tokens, final Throwable t) {
                         if (t != null) {
                             LOG.debugf("ID token refresh has failed: %s", errorMessage(t));
-                            if (autoRefresh && fallback != null) {
-                                LOG.debug("Using the current SecurityIdentity since the ID token is still valid");
-                                return Uni.createFrom().item(fallback);
-                            } else {
-                                return Uni.createFrom().failure(new AuthenticationFailedException(t));
+                            if (autoRefresh) {
+                                // Token refresh was initiated while ID token was still valid
+                                if (fallback != null) {
+                                    LOG.debug("Using the current SecurityIdentity since the ID token is still valid");
+                                    return Uni.createFrom().item(fallback);
+                                } else {
+                                    return Uni.createFrom().failure(new AuthenticationFailedException(t));
+                                }
+                            } else if (configContext.oidcConfig.authentication.getSessionExpiredPath().isPresent()) {
+                                // Token has expired but the refresh does not work, check if the session expired page is available
+                                return redirectToSessionExpiredPage(context, configContext);
                             }
+                            // Redirect to the OIDC provider to reauthenticate
+                            return Uni.createFrom().failure(new AuthenticationFailedException(t));
                         } else {
                             context.put(OidcConstants.ACCESS_TOKEN_VALUE, tokens.getAccessToken());
                             context.put(AuthorizationCodeTokens.class.getName(), tokens);
@@ -1252,7 +1329,7 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                                     tokens.setIdToken(currentIdToken);
                                 }
                             } else {
-                                tokens.setIdToken(generateInternalIdToken(configContext.oidcConfig, null, currentIdToken,
+                                tokens.setIdToken(generateInternalIdToken(configContext, null, currentIdToken,
                                         tokens.getAccessTokenExpiresIn()));
                             }
                         }
@@ -1325,7 +1402,8 @@ public class CodeAuthenticationMechanism extends AbstractOidcAuthenticationMecha
                     public Void apply(Void t) {
                         String logoutUri = buildLogoutRedirectUri(configContext, idToken, context);
                         LOG.debugf("Logout uri: %s", logoutUri);
-                        throw new AuthenticationRedirectException(logoutUri);
+                        throw new AuthenticationRedirectException(
+                                filterRedirect(context, configContext, logoutUri, Redirect.Location.OIDC_LOGOUT));
                     }
                 });
     }

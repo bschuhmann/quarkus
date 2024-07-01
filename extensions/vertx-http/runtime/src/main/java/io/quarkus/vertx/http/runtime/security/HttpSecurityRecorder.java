@@ -1,6 +1,7 @@
 package io.quarkus.vertx.http.runtime.security;
 
 import static io.quarkus.vertx.http.runtime.security.HttpSecurityUtils.setRoutingContextAttribute;
+import static io.quarkus.vertx.http.runtime.security.RolesMapping.ROLES_MAPPING_KEY;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -21,7 +22,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
 
 import org.jboss.logging.Logger;
@@ -37,6 +37,7 @@ import io.quarkus.security.AuthenticationRedirectException;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.identity.request.AnonymousAuthenticationRequest;
 import io.quarkus.security.spi.runtime.MethodDescription;
+import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import io.quarkus.vertx.http.runtime.HttpConfiguration;
 import io.smallrye.mutiny.CompositeException;
 import io.smallrye.mutiny.Uni;
@@ -52,8 +53,18 @@ public class HttpSecurityRecorder {
 
     private static final Logger log = Logger.getLogger(HttpSecurityRecorder.class);
 
-    public Handler<RoutingContext> authenticationMechanismHandler(boolean proactiveAuthentication) {
-        return new HttpAuthenticationHandler(proactiveAuthentication);
+    public RuntimeValue<AuthenticationHandler> authenticationMechanismHandler(boolean proactiveAuthentication) {
+        return new RuntimeValue<>(new AuthenticationHandler(proactiveAuthentication));
+    }
+
+    public Handler<RoutingContext> getHttpAuthenticatorHandler(RuntimeValue<AuthenticationHandler> handlerRuntimeValue) {
+        return handlerRuntimeValue.getValue();
+    }
+
+    public void initializeHttpAuthenticatorHandler(RuntimeValue<AuthenticationHandler> handlerRuntimeValue,
+            HttpConfiguration httpConfig) {
+        handlerRuntimeValue.getValue().init(PathMatchingHttpSecurityPolicy.class,
+                RolesMapping.of(httpConfig.auth.rolesMapping));
     }
 
     public Handler<RoutingContext> permissionCheckHandler() {
@@ -133,6 +144,30 @@ public class HttpSecurityRecorder {
         });
     }
 
+    public Supplier<Map<String, Object>> createAdditionalSecEventPropsSupplier() {
+        return new Supplier<Map<String, Object>>() {
+            @Override
+            public Map<String, Object> get() {
+                if (Arc.container().requestContext().isActive()) {
+
+                    // if present, add RoutingContext from CDI request to the SecurityEvents produced in Security extension
+                    // it's done this way as Security extension is not Vert.x based, but users find RoutingContext useful
+                    var event = Arc.container().instance(CurrentVertxRequest.class).get().getCurrent();
+                    if (event != null) {
+
+                        if (event.user() instanceof QuarkusHttpUser user) {
+                            return Map.of(RoutingContext.class.getName(), event, SecurityIdentity.class.getName(),
+                                    user.getSecurityIdentity());
+                        }
+
+                        return Map.of(RoutingContext.class.getName(), event);
+                    }
+                }
+                return Map.of();
+            }
+        };
+    }
+
     public static abstract class DefaultAuthFailureHandler implements BiConsumer<RoutingContext, Throwable> {
 
         protected DefaultAuthFailureHandler() {
@@ -195,38 +230,13 @@ public class HttpSecurityRecorder {
         }
     }
 
-    static class HttpAuthenticationHandler extends AbstractAuthenticationHandler {
-
-        volatile PathMatchingHttpSecurityPolicy pathMatchingPolicy;
-
-        public HttpAuthenticationHandler(boolean proactiveAuthentication) {
-            super(proactiveAuthentication);
-        }
-
-        @Override
-        protected void setPathMatchingPolicy(RoutingContext event) {
-            if (pathMatchingPolicy == null) {
-                Instance<PathMatchingHttpSecurityPolicy> pathMatchingPolicyInstance = CDI.current()
-                        .select(PathMatchingHttpSecurityPolicy.class);
-                pathMatchingPolicy = pathMatchingPolicyInstance.isResolvable() ? pathMatchingPolicyInstance.get() : null;
-            }
-            if (pathMatchingPolicy != null) {
-                event.put(AbstractPathMatchingHttpSecurityPolicy.class.getName(), pathMatchingPolicy);
-            }
-        }
-
-        @Override
-        protected boolean httpPermissionsEmpty() {
-            return CDI.current().select(HttpConfiguration.class).get().auth.permissions.isEmpty();
-        }
-    }
-
-    public static abstract class AbstractAuthenticationHandler implements Handler<RoutingContext> {
+    public static final class AuthenticationHandler implements Handler<RoutingContext> {
         volatile HttpAuthenticator authenticator;
-        volatile Boolean patchMatchingPolicyEnabled = null;
-        final boolean proactiveAuthentication;
+        private final boolean proactiveAuthentication;
+        private AbstractPathMatchingHttpSecurityPolicy pathMatchingPolicy;
+        private RolesMapping rolesMapping;
 
-        public AbstractAuthenticationHandler(boolean proactiveAuthentication) {
+        public AuthenticationHandler(boolean proactiveAuthentication) {
             this.proactiveAuthentication = proactiveAuthentication;
         }
 
@@ -237,11 +247,11 @@ public class HttpSecurityRecorder {
             }
             //we put the authenticator into the routing context so it can be used by other systems
             event.put(HttpAuthenticator.class.getName(), authenticator);
-            if (patchMatchingPolicyEnabled == null) {
-                setPatchMatchingPolicyEnabled();
+            if (pathMatchingPolicy != null) {
+                event.put(AbstractPathMatchingHttpSecurityPolicy.class.getName(), pathMatchingPolicy);
             }
-            if (patchMatchingPolicyEnabled) {
-                setPathMatchingPolicy(event);
+            if (rolesMapping != null) {
+                event.put(ROLES_MAPPING_KEY, rolesMapping);
             }
 
             //register the default auth failure handler
@@ -370,15 +380,20 @@ public class HttpSecurityRecorder {
             }
         }
 
-        private synchronized void setPatchMatchingPolicyEnabled() {
-            if (patchMatchingPolicyEnabled == null) {
-                patchMatchingPolicyEnabled = !httpPermissionsEmpty();
+        public void init(Class<? extends AbstractPathMatchingHttpSecurityPolicy> pathMatchingPolicyClass,
+                RolesMapping rolesMapping) {
+            if (pathMatchingPolicy == null) {
+                var pathMatchingPolicyInstance = CDI.current().select(pathMatchingPolicyClass);
+                if (pathMatchingPolicyInstance.isResolvable() && !pathMatchingPolicyInstance.get().hasNoPermissions()) {
+                    pathMatchingPolicy = pathMatchingPolicyInstance.get();
+                } else {
+                    pathMatchingPolicy = null;
+                }
+            }
+            if (this.rolesMapping == null) {
+                this.rolesMapping = rolesMapping;
             }
         }
-
-        protected abstract void setPathMatchingPolicy(RoutingContext event);
-
-        protected abstract boolean httpPermissionsEmpty();
     }
 
     public void setMtlsCertificateRoleProperties(HttpConfiguration config) {
@@ -413,7 +428,10 @@ public class HttpSecurityRecorder {
                     roles.put((String) e.getKey(), parseRoles((String) e.getValue()));
                 }
 
-                mtls.get().setRoleMappings(roles);
+                if (!roles.isEmpty()) {
+                    var certRolesAttribute = new CertificateRoleAttribute(config.auth.certificateRoleAttribute, roles);
+                    mtls.get().setCertificateToRolesMapper(certRolesAttribute.rolesMapper());
+                }
             } catch (Exception e) {
                 log.warnf("Unable to read roles mappings from %s:%s", rolesPath, e.getMessage());
             }
@@ -468,4 +486,5 @@ public class HttpSecurityRecorder {
         }
         return Set.copyOf(roles);
     }
+
 }

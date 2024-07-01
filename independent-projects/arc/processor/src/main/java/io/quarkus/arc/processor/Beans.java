@@ -605,9 +605,9 @@ public final class Beans {
     }
 
     private static Integer getAlternativePriority(BeanInfo bean) {
-        Integer beanPriority = bean.getAlternativePriority();
+        Integer beanPriority = bean.getPriority();
         if (beanPriority == null && bean.getDeclaringBean() != null) {
-            beanPriority = bean.getDeclaringBean().getAlternativePriority();
+            beanPriority = bean.getDeclaringBean().getPriority();
         }
         return beanPriority;
     }
@@ -616,14 +616,14 @@ public final class Beans {
         // The highest priority wins
         Integer priority1, priority2;
 
-        priority2 = bean2.getAlternativePriority();
+        priority2 = bean2.getPriority();
         if (priority2 == null) {
-            priority2 = bean2.getDeclaringBean().getAlternativePriority();
+            priority2 = bean2.getDeclaringBean().getPriority();
         }
 
-        priority1 = bean1.getAlternativePriority();
+        priority1 = bean1.getPriority();
         if (priority1 == null) {
-            priority1 = bean1.getDeclaringBean().getAlternativePriority();
+            priority1 = bean1.getDeclaringBean().getPriority();
         }
 
         if (priority2 == null || priority1 == null) {
@@ -680,6 +680,12 @@ public final class Beans {
                     //as this is called in a tight loop we only do it if necessary
                     values = new ArrayList<>();
                     Set<String> nonBindingFields = beanDeployment.getQualifierNonbindingMembers(requiredQualifier.name());
+                    if (requiredClazz == null) {
+                        throw new IllegalStateException("Failed to find bean qualifier class with name "
+                                + requiredQualifier.name() + " in application index. Make sure the class is part of "
+                                + "the Jandex index. Classes that are not subject to discovery can be registered via "
+                                + "AdditionalBeanBuildItem and non-qualifier annotations can use QualifierRegistrarBuildItem");
+                    }
                     for (AnnotationValue val : requiredQualifier.valuesWithDefaults(beanDeployment.getBeanArchiveIndex())) {
                         if (!requiredClazz.method(val.name()).hasAnnotation(DotNames.NONBINDING)
                                 && !nonBindingFields.contains(val.name())) {

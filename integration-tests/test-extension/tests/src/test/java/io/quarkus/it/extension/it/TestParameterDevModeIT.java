@@ -21,8 +21,8 @@ import io.quarkus.maven.it.continuoustesting.ContinuousTestingMavenTestUtils;
  * <p>
  * mvn install -Dit.test=DevMojoIT#methodName
  */
-@Disabled // because of https://github.com/quarkiverse/quarkus-pact/issues/73
 @DisabledIfSystemProperty(named = "quarkus.test.native", matches = "true")
+@Disabled("Needs https://github.com/junit-team/junit5/pull/3820 and #40601")
 public class TestParameterDevModeIT extends RunAndCheckMojoTestBase {
 
     protected int getPort() {

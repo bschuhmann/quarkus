@@ -29,7 +29,6 @@ import jakarta.persistence.SharedCacheMode;
 import jakarta.persistence.spi.PersistenceUnitTransactionType;
 
 import org.hibernate.cfg.AvailableSettings;
-import org.hibernate.jpa.boot.internal.ParsedPersistenceXmlDescriptor;
 import org.hibernate.loader.BatchFetchStyle;
 import org.jboss.logging.Logger;
 
@@ -67,6 +66,7 @@ import io.quarkus.hibernate.orm.deployment.PersistenceXmlDescriptorBuildItem;
 import io.quarkus.hibernate.orm.deployment.integration.HibernateOrmIntegrationRuntimeConfiguredBuildItem;
 import io.quarkus.hibernate.orm.deployment.spi.DatabaseKindDialectBuildItem;
 import io.quarkus.hibernate.orm.runtime.HibernateOrmRuntimeConfig;
+import io.quarkus.hibernate.orm.runtime.boot.QuarkusPersistenceUnitDescriptor;
 import io.quarkus.hibernate.orm.runtime.recording.RecordedConfig;
 import io.quarkus.hibernate.reactive.runtime.FastBootHibernateReactivePersistenceProvider;
 import io.quarkus.hibernate.reactive.runtime.HibernateReactive;
@@ -185,7 +185,7 @@ public final class HibernateReactiveProcessor {
                             "quarkus.datasource.password"));
         } else {
             HibernateOrmConfigPersistenceUnit persistenceUnitConfig = hibernateOrmConfig.defaultPersistenceUnit();
-            ParsedPersistenceXmlDescriptor reactivePU = generateReactivePersistenceUnit(
+            QuarkusPersistenceUnitDescriptor reactivePU = generateReactivePersistenceUnit(
                     hibernateOrmConfig, index, persistenceUnitConfig, jpaModel,
                     dbKindOptional, explicitDialect, explicitDbMinVersion, applicationArchivesBuildItem,
                     launchMode.getLaunchMode(),
@@ -196,7 +196,6 @@ public final class HibernateReactiveProcessor {
             // - we don't support starting Hibernate Reactive from a persistence.xml
             // - we don't support Hibernate Envers with Hibernate Reactive
             persistenceUnitDescriptors.produce(new PersistenceUnitDescriptorBuildItem(reactivePU,
-                    DEFAULT_PERSISTENCE_UNIT_NAME,
                     new RecordedConfig(Optional.of(DataSourceUtil.DEFAULT_DATASOURCE_NAME),
                             dbKindOptional, Optional.empty(),
                             io.quarkus.hibernate.orm.runtime.migration.MultiTenancyStrategy.NONE,
@@ -248,7 +247,7 @@ public final class HibernateReactiveProcessor {
     //  tend not to be added here.
     //  See https://github.com/quarkusio/quarkus/issues/28629.
     //see producePersistenceUnitDescriptorFromConfig in ORM
-    private static ParsedPersistenceXmlDescriptor generateReactivePersistenceUnit(
+    private static QuarkusPersistenceUnitDescriptor generateReactivePersistenceUnit(
             HibernateOrmConfig hibernateOrmConfig, CombinedIndexBuildItem index,
             HibernateOrmConfigPersistenceUnit persistenceUnitConfig,
             JpaModelBuildItem jpaModel,
@@ -263,15 +262,7 @@ public final class HibernateReactiveProcessor {
             List<DatabaseKindDialectBuildItem> dbKindDialectBuildItems) {
         //we have no persistence.xml so we will create a default one
         String persistenceUnitConfigName = DEFAULT_PERSISTENCE_UNIT_NAME;
-        // we found one
-        ParsedPersistenceXmlDescriptor desc = new ParsedPersistenceXmlDescriptor(null); //todo URL
-        desc.setName(HibernateReactive.DEFAULT_REACTIVE_PERSISTENCE_UNIT_NAME);
-        desc.setTransactionType(PersistenceUnitTransactionType.RESOURCE_LOCAL);
 
-        setDialectAndStorageEngine(dbKindOptional, explicitDialect, explicitDbMinVersion, dbKindDialectBuildItems,
-                persistenceUnitConfig.dialect().storageEngine(), systemProperties, desc);
-
-        desc.setExcludeUnlistedClasses(true);
         Map<String, Set<String>> modelClassesAndPackagesPerPersistencesUnits = HibernateOrmProcessor
                 .getModelClassesAndPackagesPerPersistenceUnits(hibernateOrmConfig, jpaModel, index.getIndex(), true);
         Set<String> nonDefaultPUWithModelClassesOrPackages = modelClassesAndPackagesPerPersistencesUnits.entrySet().stream()
@@ -286,11 +277,19 @@ public final class HibernateReactiveProcessor {
         }
         Set<String> modelClassesAndPackages = modelClassesAndPackagesPerPersistencesUnits
                 .getOrDefault(DEFAULT_PERSISTENCE_UNIT_NAME, Collections.emptySet());
+
         if (modelClassesAndPackages.isEmpty()) {
             LOG.warnf("Could not find any entities affected to the Hibernate Reactive persistence unit.");
-        } else {
-            desc.addClasses(new ArrayList<>(modelClassesAndPackages));
         }
+
+        QuarkusPersistenceUnitDescriptor desc = new QuarkusPersistenceUnitDescriptor(
+                HibernateReactive.DEFAULT_REACTIVE_PERSISTENCE_UNIT_NAME, persistenceUnitConfigName,
+                PersistenceUnitTransactionType.RESOURCE_LOCAL,
+                new ArrayList<>(modelClassesAndPackages),
+                new Properties());
+
+        setDialectAndStorageEngine(dbKindOptional, explicitDialect, explicitDbMinVersion, dbKindDialectBuildItems,
+                persistenceUnitConfig.dialect().storageEngine(), systemProperties, desc);
 
         // Physical Naming Strategy
         persistenceUnitConfig.physicalNamingStrategy().ifPresent(
@@ -427,21 +426,24 @@ public final class HibernateReactiveProcessor {
         return desc;
     }
 
-    private static void setDialectAndStorageEngine(Optional<String> dbKindOptional, Optional<String> explicitDialect,
+    private static void setDialectAndStorageEngine(Optional<String> dbKind, Optional<String> explicitDialect,
             Optional<String> explicitDbMinVersion, List<DatabaseKindDialectBuildItem> dbKindDialectBuildItems,
             Optional<String> storageEngine, BuildProducer<SystemPropertyBuildItem> systemProperties,
-            ParsedPersistenceXmlDescriptor desc) {
+            QuarkusPersistenceUnitDescriptor desc) {
         final String persistenceUnitName = DEFAULT_PERSISTENCE_UNIT_NAME;
         Optional<String> dialect = explicitDialect;
+        Optional<String> dbProductName = Optional.empty();
         Optional<String> dbProductVersion = explicitDbMinVersion;
-        if (dbKindOptional.isPresent() || explicitDialect.isPresent()) {
+        if (dbKind.isPresent() || explicitDialect.isPresent()) {
             for (DatabaseKindDialectBuildItem item : dbKindDialectBuildItems) {
-                if (dbKindOptional.isPresent() && DatabaseKind.is(dbKindOptional.get(), item.getDbKind())
+                if (dbKind.isPresent() && DatabaseKind.is(dbKind.get(), item.getDbKind())
                         // Set the default version based on the dialect when we don't have a datasource
                         // (i.e. for database multi-tenancy)
-                        || explicitDialect.isPresent() && explicitDialect.get().equals(item.getDialect())) {
-                    if (explicitDialect.isEmpty()) {
-                        dialect = Optional.of(item.getDialect());
+                        || explicitDialect.isPresent() && item.getMatchingDialects().contains(explicitDialect.get())) {
+                    dbProductName = item.getDatabaseProductName();
+                    if (dbProductName.isEmpty() && explicitDialect.isEmpty()) {
+                        // Use dialects only as a last resort, prefer product name or explicitly user-provided dialect
+                        dialect = item.getDialectOptional();
                     }
                     if (explicitDbMinVersion.isEmpty()) {
                         dbProductVersion = item.getDefaultDatabaseProductVersion();
@@ -449,10 +451,10 @@ public final class HibernateReactiveProcessor {
                     break;
                 }
             }
-            if (dialect.isEmpty()) {
+            if (dialect.isEmpty() && dbProductName.isEmpty()) {
                 throw new ConfigurationException(
                         "The Hibernate Reactive extension could not guess the dialect from the database kind '"
-                                + dbKindOptional.get()
+                                + dbKind.get()
                                 + "'. Add an explicit '"
                                 + HibernateOrmRuntimeConfig.puPropertyKey(persistenceUnitName, "dialect")
                                 + "' property.");
@@ -461,6 +463,8 @@ public final class HibernateReactiveProcessor {
 
         if (dialect.isPresent()) {
             desc.getProperties().setProperty(AvailableSettings.DIALECT, dialect.get());
+        } else if (dbProductName.isPresent()) {
+            desc.getProperties().setProperty(AvailableSettings.JAKARTA_HBM2DDL_DB_NAME, dbProductName.get());
         } else {
             // We only get here with the database multi-tenancy strategy; see the initial check, up top.
             throw new ConfigurationException(String.format(Locale.ROOT,
@@ -472,15 +476,11 @@ public final class HibernateReactiveProcessor {
                     persistenceUnitName));
         }
 
-        if (dbProductVersion.isPresent()) {
-            desc.getProperties().setProperty(JAKARTA_HBM2DDL_DB_VERSION, dbProductVersion.get());
-        }
-
         // The storage engine has to be set as a system property.
         if (storageEngine.isPresent()) {
             systemProperties.produce(new SystemPropertyBuildItem(STORAGE_ENGINE, storageEngine.get()));
             // Only actually set the storage engines if MySQL or MariaDB
-            if (isMySQLOrMariaDB(dialect.get())) {
+            if (isMySQLOrMariaDB(dbKind, dialect)) {
                 systemProperties.produce(new SystemPropertyBuildItem(STORAGE_ENGINE, storageEngine.get()));
             } else {
                 LOG.warnf("The storage engine set through configuration property '%1$s' is being ignored"
@@ -489,14 +489,23 @@ public final class HibernateReactiveProcessor {
             }
         }
 
+        if (dbProductVersion.isPresent()) {
+            desc.getProperties().setProperty(JAKARTA_HBM2DDL_DB_VERSION, dbProductVersion.get());
+        }
     }
 
-    private static boolean isMySQLOrMariaDB(String dialect) {
-        String lowercaseDialect = dialect.toLowerCase(Locale.ROOT);
-        return lowercaseDialect.contains("mysql") || lowercaseDialect.contains("mariadb");
+    private static boolean isMySQLOrMariaDB(Optional<String> dbKind, Optional<String> dialect) {
+        if (dbKind.isPresent() && (DatabaseKind.isMySQL(dbKind.get()) || DatabaseKind.isMariaDB(dbKind.get()))) {
+            return true;
+        }
+        if (dialect.isPresent()) {
+            String lowercaseDialect = dialect.get().toLowerCase(Locale.ROOT);
+            return lowercaseDialect.contains("mysql") || lowercaseDialect.contains("mariadb");
+        }
+        return false;
     }
 
-    private static void setMaxFetchDepth(ParsedPersistenceXmlDescriptor descriptor, OptionalInt maxFetchDepth) {
+    private static void setMaxFetchDepth(QuarkusPersistenceUnitDescriptor descriptor, OptionalInt maxFetchDepth) {
         descriptor.getProperties().setProperty(AvailableSettings.MAX_FETCH_DEPTH, String.valueOf(maxFetchDepth.getAsInt()));
     }
 

@@ -37,29 +37,27 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <!-- These properties are used by CreateProjectMojo to add the Maven Wrapper -->
-        <proposed-maven-version>3.9.6</proposed-maven-version>
+        <proposed-maven-version>3.9.8</proposed-maven-version>
         <maven-wrapper.version>3.2.0</maven-wrapper.version>
-        <gradle-wrapper.version>8.6</gradle-wrapper.version>
+        <gradle-wrapper.version>8.8</gradle-wrapper.version>
 
         <!-- These properties are needed in order for them to be resolvable by the generated projects -->
-        <compiler-plugin.version>3.12.1</compiler-plugin.version>
+        <compiler-plugin.version>3.13.0</compiler-plugin.version>
         <kotlin.version>1.6.0</kotlin.version>
         <scala.version>2.13.12</scala.version>
         <scala-plugin.version>4.4.0</scala-plugin.version>
 
         <!-- Versions -->
-        <assertj.version>3.25.3</assertj.version>
-        <jackson-bom.version>2.17.0</jackson-bom.version>
-        <jakarta.enterprise.cdi-api.version>4.0.1</jakarta.enterprise.cdi-api.version>
-        <junit.version>5.10.2</junit.version>
-        <commons-compress.version>1.26.1</commons-compress.version>
-        <jboss-logging.version>3.5.3.Final</jboss-logging.version>
-        <mockito.version>5.11.0</mockito.version>
-        <version.enforcer.plugin>3.2.1</version.enforcer.plugin>
-        <version.surefire.plugin>3.2.5</version.surefire.plugin>
+        <assertj.version>3.26.0</assertj.version>
+        <jackson-bom.version>2.17.1</jackson-bom.version>
+        <jakarta.enterprise.cdi-api.version>4.1.0</jakarta.enterprise.cdi-api.version>
+        <junit.version>5.10.3</junit.version>
+        <commons-compress.version>1.26.2</commons-compress.version>
+        <jboss-logging.version>3.6.0.Final</jboss-logging.version>
+        <mockito.version>5.12.0</mockito.version>
         <quarkus.version>${project.version}</quarkus.version>
-        <maven-model-helper.version>36</maven-model-helper.version>
-        <jandex.version>3.1.7</jandex.version>
+        <maven-model-helper.version>37</maven-model-helper.version>
+        <jandex.version>3.2.0</jandex.version>
         <system-stubs-jupiter.version>2.0.2</system-stubs-jupiter.version>
         <awaitility.version>4.2.1</awaitility.version>
     </properties>
@@ -205,14 +203,6 @@
     </distributionManagement>
 
     <build>
-        <pluginManagement>
-            <plugins>
-                <plugin>
-                    <artifactId>maven-compiler-plugin</artifactId>
-                    <version>${compiler-plugin.version}</version>
-                </plugin>
-            </plugins>
-        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -227,6 +217,7 @@
                 <executions>
                     <execution>
                         <id>enforce</id>
+                        <phase>${maven-enforcer-plugin.phase}</phase>
                         <configuration>
                             <rules>
                                 <externalRules>
@@ -248,7 +239,6 @@
             </plugin>
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>${version.surefire.plugin}</version>
                 <configuration>
                     <!-- combine.self suppresses warnings about java.io.tmpdir being defined twice -->
                     <systemPropertyVariables combine.self="override"/>
@@ -260,7 +250,6 @@
             <plugin>
                 <groupId>net.revelc.code.formatter</groupId>
                 <artifactId>formatter-maven-plugin</artifactId>
-                <version>2.23.0</version>
                 <dependencies>
                     <dependency>
                         <artifactId>quarkus-ide-config</artifactId>
@@ -279,7 +268,6 @@
             <plugin>
                 <groupId>net.revelc.code</groupId>
                 <artifactId>impsort-maven-plugin</artifactId>
-                <version>1.9.0</version>
                 <configuration>
                     <!-- store outside of target to speed up formatting when mvn clean is used -->
                     <cachedir>.cache/impsort-maven-plugin-${impsort-maven-plugin.version}</cachedir>

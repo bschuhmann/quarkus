@@ -1,5 +1,7 @@
 package io.quarkus.runner.bootstrap;
 
+import static io.quarkus.commons.classloading.ClassloadHelper.fromClassNameToResourceName;
+
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -9,8 +11,8 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,6 +53,7 @@ public class StartupActionImpl implements StartupAction {
     private final String applicationClassName;
     private final Map<String, String> devServicesProperties;
     private final List<RuntimeApplicationShutdownBuildItem> runtimeApplicationShutdownBuildItems;
+    private final List<Closeable> runtimeCloseTasks = new ArrayList<>();
 
     public StartupActionImpl(CuratedApplication curatedApplication, BuildResult buildResult) {
         this.curatedApplication = curatedApplication;
@@ -60,9 +63,8 @@ public class StartupActionImpl implements StartupAction {
         this.devServicesProperties = extractDevServicesProperties(buildResult);
         this.runtimeApplicationShutdownBuildItems = buildResult.consumeMulti(RuntimeApplicationShutdownBuildItem.class);
 
-        Set<String> eagerClasses = new HashSet<>();
-        Map<String, byte[]> transformedClasses = extractTransformers(buildResult, eagerClasses);
-        QuarkusClassLoader baseClassLoader = curatedApplication.getBaseRuntimeClassLoader();
+        Map<String, byte[]> transformedClasses = extractTransformedClasses(buildResult);
+        QuarkusClassLoader baseClassLoader = curatedApplication.getOrCreateBaseRuntimeClassLoader();
         QuarkusClassLoader runtimeClassLoader;
 
         //so we have some differences between dev and test mode here.
@@ -125,6 +127,13 @@ public class StartupActionImpl implements StartupAction {
                                 log.error("Failed to run close task", t);
                             }
                         }
+                        for (var closeTask : runtimeCloseTasks) {
+                            try {
+                                closeTask.close();
+                            } catch (Throwable t) {
+                                log.error("Failed to run close task", t);
+                            }
+                        }
                     }
                 }
             }, "Quarkus Main Thread");
@@ -166,6 +175,11 @@ public class StartupActionImpl implements StartupAction {
         } finally {
             Thread.currentThread().setContextClassLoader(old);
         }
+    }
+
+    @Override
+    public void addRuntimeCloseTask(Closeable closeTask) {
+        this.runtimeCloseTasks.add(closeTask);
     }
 
     private void doClose() {
@@ -234,6 +248,13 @@ public class StartupActionImpl implements StartupAction {
             }
             return result.get();
         } finally {
+            for (var closeTask : runtimeCloseTasks) {
+                try {
+                    closeTask.close();
+                } catch (Throwable t) {
+                    log.error("Failed to run close task", t);
+                }
+            }
             runtimeClassLoader.close();
             Thread.currentThread().setContextClassLoader(old);
             for (var i : runtimeApplicationShutdownBuildItems) {
@@ -294,6 +315,13 @@ public class StartupActionImpl implements StartupAction {
                             // (e.g. ServiceLoader calls)
                             Thread.currentThread().setContextClassLoader(runtimeClassLoader);
                             closeTask.close();
+                            for (var closeTask : runtimeCloseTasks) {
+                                try {
+                                    closeTask.close();
+                                } catch (Throwable t) {
+                                    log.error("Failed to run close task", t);
+                                }
+                            }
                         } finally {
                             Thread.currentThread().setContextClassLoader(original);
                             runtimeClassLoader.close();
@@ -347,16 +375,13 @@ public class StartupActionImpl implements StartupAction {
         return new HashMap<>(result.getConfig());
     }
 
-    private static Map<String, byte[]> extractTransformers(BuildResult buildResult, Set<String> eagerClasses) {
+    private static Map<String, byte[]> extractTransformedClasses(BuildResult buildResult) {
         Map<String, byte[]> ret = new HashMap<>();
         TransformedClassesBuildItem transformers = buildResult.consume(TransformedClassesBuildItem.class);
         for (Set<TransformedClassesBuildItem.TransformedClass> i : transformers.getTransformedClassesByJar().values()) {
             for (TransformedClassesBuildItem.TransformedClass clazz : i) {
                 if (clazz.getData() != null) {
                     ret.put(clazz.getFileName(), clazz.getData());
-                    if (clazz.isEager()) {
-                        eagerClasses.add(clazz.getClassName());
-                    }
                 }
             }
         }
@@ -367,7 +392,7 @@ public class StartupActionImpl implements StartupAction {
         Map<String, byte[]> data = new HashMap<>();
         for (GeneratedClassBuildItem i : buildResult.consumeMulti(GeneratedClassBuildItem.class)) {
             if (i.isApplicationClass() == applicationClasses) {
-                data.put(i.getName().replace('.', '/') + ".class", i.getClassData());
+                data.put(fromClassNameToResourceName(i.getName()), i.getClassData());
                 if (BootstrapDebug.DEBUG_CLASSES_DIR != null) {
                     try {
                         File debugPath = new File(BootstrapDebug.DEBUG_CLASSES_DIR);

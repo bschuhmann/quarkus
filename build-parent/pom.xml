@@ -19,31 +19,26 @@
         <!-- Maven plugin versions -->
 
         <!-- These properties are needed in order for them to be resolvable by the generated projects -->
-        <compiler-plugin.version>3.12.1</compiler-plugin.version>
-        <kotlin.version>1.9.23</kotlin.version>
+        <compiler-plugin.version>${version.compiler.plugin}</compiler-plugin.version>
+        <kotlin.version>2.0.0</kotlin.version>
         <dokka.version>1.9.20</dokka.version>
         <scala.version>2.13.12</scala.version>
-        <scala-maven-plugin.version>4.8.1</scala-maven-plugin.version>
+        <scala-maven-plugin.version>4.9.1</scala-maven-plugin.version>
         <!-- not pretty but this is used in the codestarts and we don't want to break compatibility -->
         <scala-plugin.version>${scala-maven-plugin.version}</scala-plugin.version>
 
-        <version.enforcer.plugin>3.2.1</version.enforcer.plugin>
-        <version.surefire.plugin>3.2.5</version.surefire.plugin>
-        <version.exec.plugin>3.0.0</version.exec.plugin>
-        <failsafe-plugin.version>${version.surefire.plugin}</failsafe-plugin.version>
-
         <!-- Jandex versions -->
-        <jandex.version>3.1.7</jandex.version>
+        <jandex.version>3.2.0</jandex.version>
         <jandex-gradle-plugin.version>1.0.0</jandex-gradle-plugin.version>
 
-        <asciidoctorj.version>2.5.12</asciidoctorj.version>
-        <htmlunit.version>2.70.0</htmlunit.version>
-        <javaparser-core.version>3.25.9</javaparser-core.version>
+        <asciidoctorj.version>2.5.13</asciidoctorj.version>
+        <htmlunit.version>4.3.0</htmlunit.version>
+        <javaparser-core.version>3.26.1</javaparser-core.version>
         <jdeparser.version>2.0.3.Final</jdeparser.version>
         <subethasmtp.version>6.0.1</subethasmtp.version>
 
         <!-- Dev tools -->
-        <freemarker.version>2.3.32</freemarker.version>
+        <freemarker.version>2.3.33</freemarker.version>
         <commonmark.version>0.22.0</commonmark.version>
 
         <!-- Arquillian BOM -->
@@ -62,33 +57,25 @@
         <supported-maven-versions>[${maven.min.version},)</supported-maven-versions>
 
         <!-- These 2 properties are used by CreateProjectMojo to add the Maven Wrapper -->
-        <proposed-maven-version>3.9.6</proposed-maven-version>
+        <proposed-maven-version>3.9.8</proposed-maven-version>
         <maven-wrapper.version>3.2.0</maven-wrapper.version>
-        <gradle-wrapper.version>8.6</gradle-wrapper.version>
+        <gradle-wrapper.version>8.8</gradle-wrapper.version>
         <quarkus-gradle-plugin.version>${project.version}</quarkus-gradle-plugin.version>
         <quarkus-maven-plugin.version>${project.version}</quarkus-maven-plugin.version>
         <maven-plugin-plugin.version>3.8.1</maven-plugin-plugin.version>
 
         <!-- MicroProfile TCK versions used to be defined here but have moved to the concrete tck modules -->
 
-        <!-- Panache needs to run the hibernate-jpamodelgen annotation processor,
-             and unfortunately annotation processors are not covered by dependency management
-             in kotlin-maven-plugin; see https://github.com/quarkusio/quarkus/issues/37477#issuecomment-1923662964
-         -->
-        <hibernate-orm.version>6.4.4.Final</hibernate-orm.version>
-        <!-- Antlr 4 is used by the PanacheQL parser but also needs to match the requirements of Hibernate ORM 6.x-->
-        <antlr.version>4.13.0</antlr.version>
-
         <!-- SELinux access label, used when mounting local volumes into containers in tests -->
         <volume.access.modifier>:Z</volume.access.modifier>
 
         <!-- Defaults for integration tests -->
-        <elasticsearch-server.version>8.12.1</elasticsearch-server.version>
+        <elasticsearch-server.version>8.13.2</elasticsearch-server.version>
         <elasticsearch.image>docker.io/elastic/elasticsearch:${elasticsearch-server.version}</elasticsearch.image>
         <logstash.image>docker.io/elastic/logstash:${elasticsearch-server.version}</logstash.image>
         <kibana.image>docker.io/elastic/kibana:${elasticsearch-server.version}</kibana.image>
         <elasticsearch.protocol>http</elasticsearch.protocol>
-        <opensearch-server.version>2.11.1</opensearch-server.version>
+        <opensearch-server.version>2.13.0</opensearch-server.version>
         <opensearch.image>docker.io/opensearchproject/opensearch:${opensearch-server.version}</opensearch.image>
         <opensearch.protocol>http</opensearch.protocol>
         <junit-pioneer.version>2.2.0</junit-pioneer.version>
@@ -107,37 +94,33 @@
 
         <!-- The image to use for tests that run Keycloak -->
         <!-- IMPORTANT: If this is changed you must also update bom/application/pom.xml and KeycloakBuildTimeConfig/DevServicesConfig in quarkus-oidc/deployment to match the version -->
-        <keycloak.version>23.0.7</keycloak.version>
+        <keycloak.version>25.0.0</keycloak.version>
         <keycloak.wildfly.version>19.0.3</keycloak.wildfly.version>
         <keycloak.docker.image>quay.io/keycloak/keycloak:${keycloak.version}</keycloak.docker.image>
         <keycloak.docker.legacy.image>quay.io/keycloak/keycloak:${keycloak.wildfly.version}-legacy</keycloak.docker.legacy.image>
 
-        <unboundid-ldap.version>7.0.0</unboundid-ldap.version>
+        <unboundid-ldap.version>7.0.1</unboundid-ldap.version>
 
-        <assertj.version>3.25.3</assertj.version>
+        <assertj.version>3.26.0</assertj.version>
 
-        <wiremock.version>3.5.2</wiremock.version>
+        <wiremock.version>3.7.0</wiremock.version>
         <wiremock-maven-plugin.version>7.3.0</wiremock-maven-plugin.version>
 
         <!-- Artemis test dependencies -->
-        <artemis.version>2.33.0</artemis.version>
+        <artemis.version>2.35.0</artemis.version>
 
         <!-- Code Coverage Properties-->
         <jacoco.agent.argLine></jacoco.agent.argLine>
 
         <asciidoctor-maven-plugin.version>2.0.0</asciidoctor-maven-plugin.version>
         <docker-maven-plugin.version>0.44.0</docker-maven-plugin.version>
-        <formatter-maven-plugin.version>2.23.0</formatter-maven-plugin.version>
-        <impsort-maven-plugin.version>1.9.0</impsort-maven-plugin.version>
-        <maven-invoker-plugin.version>3.6.1</maven-invoker-plugin.version>
-        <maven-resources-plugin.version>3.1.0</maven-resources-plugin.version>
-        <maven-dependency-plugin.version>3.1.2</maven-dependency-plugin.version>
+        <maven-invoker-plugin.version>3.7.0</maven-invoker-plugin.version>
         <truststore-maven-plugin.version>3.0.0</truststore-maven-plugin.version>
 
         <!-- revapi API check -->
         <revapi-maven-plugin.version>0.14.7</revapi-maven-plugin.version>
         <revapi-java-plugin.version>0.26.1</revapi-java-plugin.version>
-        <build-helper-plugin.version>3.5.0</build-helper-plugin.version>
+        <build-helper-plugin.version>3.6.0</build-helper-plugin.version>
         <revapi-reporter-text.version>0.14.5</revapi-reporter-text.version>
         <revapi-reporter-json.version>0.4.5</revapi-reporter-json.version>
         <!-- Latest release to be used by api-compatibility-check to check backwards compatibility of the Quarkus API. -->
@@ -315,7 +298,7 @@
             </dependency>
 
             <dependency>
-                <groupId>net.sourceforge.htmlunit</groupId>
+                <groupId>org.htmlunit</groupId>
                 <artifactId>htmlunit</artifactId>
                 <version>${htmlunit.version}</version>
                 <exclusions>
@@ -414,7 +397,6 @@
             <plugins>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>${compiler-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -438,7 +420,6 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>${version.surefire.plugin}</version>
                     <configuration>
                         <properties>
                             <predictiveSelection>
@@ -463,7 +444,6 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-failsafe-plugin</artifactId>
-                    <version>${failsafe-plugin.version}</version>
                     <configuration>
                         <properties>
                             <predictiveSelection>
@@ -483,11 +463,6 @@
                         <argLine>-Djava.io.tmpdir="${project.build.directory}" ${failsafe.argLine.additional}</argLine>
                         <excludedEnvironmentVariables>MAVEN_OPTS</excludedEnvironmentVariables>
                     </configuration>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-dependency-plugin</artifactId>
-                    <version>${maven-dependency-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>io.quarkus</groupId>
@@ -525,6 +500,7 @@
                     <executions>
                         <execution>
                             <id>enforce</id>
+                            <phase>${maven-enforcer-plugin.phase}</phase>
                             <configuration>
                                 <rules>
                                     <dependencyConvergence/>
@@ -566,7 +542,6 @@
                 <plugin>
                     <groupId>net.revelc.code.formatter</groupId>
                     <artifactId>formatter-maven-plugin</artifactId>
-                    <version>${formatter-maven-plugin.version}</version>
                     <dependencies>
                         <dependency>
                             <artifactId>quarkus-ide-config</artifactId>
@@ -585,7 +560,6 @@
                 <plugin>
                     <groupId>net.revelc.code</groupId>
                     <artifactId>impsort-maven-plugin</artifactId>
-                    <version>${impsort-maven-plugin.version}</version>
                     <configuration>
                         <!-- store outside of target to speed up formatting when mvn clean is used -->
                         <cachedir>.cache/impsort-maven-plugin-${impsort-maven-plugin.version}</cachedir>
@@ -597,7 +571,6 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-resources-plugin</artifactId>
-                    <version>${maven-resources-plugin.version}</version>
                     <configuration>
                         <nonFilteredFileExtensions>
                             <nonFilteredFileExtension>eot</nonFilteredFileExtension>
@@ -653,7 +626,7 @@
                         <dependency>
                             <groupId>org.apache.groovy</groupId>
                             <artifactId>groovy</artifactId>
-                            <version>4.0.20</version>
+                            <version>4.0.21</version>
                         </dependency>
                     </dependencies>
                 </plugin>
@@ -679,7 +652,7 @@
                                 <ignoreSignaturesOfMissingClasses>true</ignoreSignaturesOfMissingClasses>
                                 <suppressAnnotations><annotation>**.SuppressForbidden</annotation></suppressAnnotations>
                             </configuration>
-                            <phase>compile</phase>
+                            <phase>${forbiddenapis-maven-plugin.phase}</phase>
                             <goals>
                                 <goal>check</goal>
                             </goals>

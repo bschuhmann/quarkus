@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 
@@ -47,8 +48,8 @@ public class KafkaDevServicesBuildTimeConfig {
     public Provider provider = Provider.REDPANDA;
 
     public enum Provider {
-        REDPANDA("docker.io/vectorized/redpanda:v22.3.4"),
-        STRIMZI("quay.io/strimzi-test-container/test-container:latest-kafka-3.2.1"),
+        REDPANDA("docker.io/vectorized/redpanda:v24.1.2"),
+        STRIMZI("quay.io/strimzi-test-container/test-container:latest-kafka-3.7.0"),
         KAFKA_NATIVE("quay.io/ogunalp/kafka-native:latest");
 
         private final String defaultImageName;
@@ -106,6 +107,7 @@ public class KafkaDevServicesBuildTimeConfig {
      * The topic creation will not try to re-partition existing topics with different number of partitions.
      */
     @ConfigItem
+    @ConfigDocMapKey("topic-name")
     public Map<String, Integer> topicPartitions;
 
     /**
@@ -120,6 +122,7 @@ public class KafkaDevServicesBuildTimeConfig {
      * Environment variables that are passed to the container.
      */
     @ConfigItem
+    @ConfigDocMapKey("environment-variable-name")
     public Map<String, String> containerEnv;
 
     /**

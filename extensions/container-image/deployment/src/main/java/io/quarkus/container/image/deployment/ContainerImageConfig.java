@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigRoot;
 import io.quarkus.runtime.annotations.ConvertWith;
@@ -42,6 +43,7 @@ public class ContainerImageConfig {
      * Custom labels to add to the generated image.
      */
     @ConfigItem
+    @ConfigDocMapKey("label-name")
     public Map<String, String> labels;
 
     /**
@@ -89,7 +91,7 @@ public class ContainerImageConfig {
     public Optional<Boolean> push;
 
     /**
-     * The name of the container image extension to use (e.g. docker, jib, s2i).
+     * The name of the container image extension to use (e.g. docker, podman, jib, s2i).
      * The option will be used in case multiple extensions are present.
      */
     @ConfigItem

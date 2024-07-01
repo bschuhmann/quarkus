@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
@@ -16,9 +17,9 @@ public class ContainerImageJibConfig {
     /**
      * The base image to be used when a container image is being produced for the jar build.
      *
-     * When the application is built against Java 21 or higher, {@code registry.access.redhat.com/ubi8/openjdk-21-runtime:1.18}
+     * When the application is built against Java 21 or higher, {@code registry.access.redhat.com/ubi8/openjdk-21-runtime:1.19}
      * is used as the default.
-     * Otherwise {@code registry.access.redhat.com/ubi8/openjdk-17-runtime:1.18} is used as the default.
+     * Otherwise {@code registry.access.redhat.com/ubi8/openjdk-17-runtime:1.19} is used as the default.
      */
     @ConfigItem
     public Optional<String> baseJvmImage;
@@ -99,6 +100,7 @@ public class ContainerImageJibConfig {
      * Environment variables to add to the container image
      */
     @ConfigItem
+    @ConfigDocMapKey("environment-variable-name")
     public Map<String, String> environmentVariables;
 
     /**
@@ -202,6 +204,7 @@ public class ContainerImageJibConfig {
      * when the container image is being built locally.
      */
     @ConfigItem
+    @ConfigDocMapKey("environment-variable-name")
     public Map<String, String> dockerEnvironment;
 
     /**

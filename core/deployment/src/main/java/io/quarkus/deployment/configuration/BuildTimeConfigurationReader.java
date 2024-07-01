@@ -89,7 +89,6 @@ import io.smallrye.config.SmallRyeConfig;
 import io.smallrye.config.SmallRyeConfigBuilder;
 import io.smallrye.config.SysPropConfigSource;
 import io.smallrye.config.common.AbstractConfigSource;
-import io.smallrye.config.common.MapBackedConfigSource;
 
 /**
  * A configuration reader.
@@ -524,12 +523,6 @@ public final class BuildTimeConfigurationReader {
             buildTimeRunTimeValues.putAll(getDefaults(config, buildTimeRunTimePatternMap));
             runTimeDefaultValues.putAll(getDefaults(runtimeConfig, runTimePatternMap));
 
-            // Register defaults for Mappings
-            // Runtime defaults are added in ConfigGenerationBuildStep.generateBuilders to include user mappings
-            for (ConfigClassWithPrefix buildTimeRunTimeMapping : buildTimeRunTimeMappings) {
-                buildTimeRunTimeValues.putAll(ConfigMappings.getDefaults(buildTimeRunTimeMapping));
-            }
-
             Set<String> registeredRoots = allRoots.stream().map(RootDefinition::getName).collect(toSet());
             registeredRoots.add("quarkus");
             Set<String> allProperties = getAllProperties(registeredRoots);
@@ -622,7 +615,7 @@ public final class BuildTimeConfigurationReader {
                     // it's not managed by us; record it
                     ConfigValue configValue = withoutExpansion(() -> runtimeConfig.getConfigValue(propertyName));
                     if (configValue.getValue() != null) {
-                        runTimeValues.put(configValue.getNameProfiled(), configValue.getValue());
+                        runTimeValues.put(propertyName, configValue.getValue());
                     }
 
                     // in the case the user defined compound keys in YAML (or similar config source, that quotes the name)
@@ -1045,6 +1038,7 @@ public final class BuildTimeConfigurationReader {
          * want to record properties set by the compiling JVM (or other properties that are only related to the build).
          */
         private Set<String> getAllProperties(final Set<String> registeredRoots) {
+            // Collects all properties from allowed sources
             Set<String> sourcesProperties = new HashSet<>();
             for (ConfigSource configSource : config.getConfigSources()) {
                 if (configSource instanceof SysPropConfigSource || configSource instanceof EnvConfigSource
@@ -1086,6 +1080,7 @@ public final class BuildTimeConfigurationReader {
             builder.getSources().clear();
             builder.getSourceProviders().clear();
             builder.setAddDefaultSources(false)
+                    .withInterceptors(ConfigCompatibility.FrontEnd.nonLoggingInstance(), ConfigCompatibility.BackEnd.instance())
                     .addDiscoveredCustomizers()
                     .withProfiles(config.getProfiles())
                     .withSources(sourceProperties);
@@ -1093,32 +1088,25 @@ public final class BuildTimeConfigurationReader {
                 properties.add(property);
             }
 
-            // TODO - Add better API to set an empty Profile, or no Profile at all
             // We also need an empty profile Config to record the properties that are not on the active profile
             builder = ConfigUtils.emptyConfigBuilder();
+            // Do not use a profile, so we can record both profile properties and main properties of the active profile
+            builder.getProfiles().add("");
             builder.getSources().clear();
             builder.getSourceProviders().clear();
             builder.setAddDefaultSources(false)
+                    .withInterceptors(ConfigCompatibility.FrontEnd.nonLoggingInstance(), ConfigCompatibility.BackEnd.instance())
                     .addDiscoveredCustomizers()
-                    .withSources(sourceProperties)
-                    .withSources(new MapBackedConfigSource(
-                            "Reset Profile",
-                            Map.of("quarkus.profile", "",
-                                    "quarkus.config.profile.parent", "",
-                                    "quarkus.test.profile", "",
-                                    SMALLRYE_CONFIG_PROFILE, "",
-                                    SMALLRYE_CONFIG_PROFILE_PARENT, "",
-                                    Config.PROFILE, ""),
-                            Integer.MAX_VALUE) {
-                        @Override
-                        public Set<String> getPropertyNames() {
-                            return Collections.emptySet();
-                        }
-                    });
+                    .withSources(sourceProperties);
 
-            String[] profiles = config.getProfiles().toArray(String[]::new);
+            List<String> profiles = config.getProfiles();
             for (String property : builder.build().getPropertyNames()) {
-                properties.add(ProfileConfigSourceInterceptor.activeName(property, profiles));
+                String activeProperty = ProfileConfigSourceInterceptor.activeName(property, profiles);
+                // keep the profile parent in the original form; if we use the active profile it may mess the profile ordering
+                if (activeProperty.equals("quarkus.config.profile.parent") && !activeProperty.equals(property)) {
+                    properties.remove(activeProperty);
+                }
+                properties.add(property);
             }
 
             return properties;
@@ -1135,6 +1123,8 @@ public final class BuildTimeConfigurationReader {
          */
         private SmallRyeConfig getConfigForRuntimeRecording() {
             SmallRyeConfigBuilder builder = ConfigUtils.emptyConfigBuilder();
+            // Do not use a profile, so we can record both profile properties and main properties of the active profile
+            builder.getProfiles().add("");
             builder.getSources().clear();
             builder.getSourceProviders().clear();
             builder.setAddDefaultSources(false)
@@ -1215,12 +1205,12 @@ public final class BuildTimeConfigurationReader {
                 ClassDefinition.ItemMember itemMember = (ClassDefinition.ItemMember) member;
                 String defaultValue = itemMember.getDefaultValue();
                 if (defaultValue != null) {
-                    // lookup config to make sure we catch relocates or fallbacks
+                    // lookup config to make sure we catch relocates or fallbacks and override the value
                     ConfigValue configValue = config.getConfigValue(propertyName.toString());
-                    if (configValue.getValue() != null) {
-                        defaultValues.put(configValue.getName(), configValue.getValue());
+                    if (configValue.getValue() != null && !configValue.getName().equals(propertyName.toString())) {
+                        defaultValues.put(propertyName.toString(), configValue.getValue());
                     } else {
-                        defaultValues.put(configValue.getName(), defaultValue);
+                        defaultValues.put(propertyName.toString(), defaultValue);
                     }
                 }
             }

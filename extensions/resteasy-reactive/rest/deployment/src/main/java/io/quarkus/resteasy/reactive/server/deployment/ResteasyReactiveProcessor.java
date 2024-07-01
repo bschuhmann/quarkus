@@ -57,6 +57,7 @@ import jakarta.ws.rs.ext.WriterInterceptor;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
+import org.jboss.jandex.AnnotationTransformation;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
@@ -183,6 +184,7 @@ import io.quarkus.resteasy.reactive.server.runtime.security.EagerSecurityContext
 import io.quarkus.resteasy.reactive.server.runtime.security.EagerSecurityHandler;
 import io.quarkus.resteasy.reactive.server.runtime.security.EagerSecurityInterceptorHandler;
 import io.quarkus.resteasy.reactive.server.runtime.security.SecurityContextOverrideHandler;
+import io.quarkus.resteasy.reactive.server.spi.AllowNotRestParametersBuildItem;
 import io.quarkus.resteasy.reactive.server.spi.AnnotationsTransformerBuildItem;
 import io.quarkus.resteasy.reactive.server.spi.ContextTypeBuildItem;
 import io.quarkus.resteasy.reactive.server.spi.HandlerConfigurationProviderBuildItem;
@@ -413,8 +415,8 @@ public class ResteasyReactiveProcessor {
             List<ContextTypeBuildItem> contextTypeBuildItems,
             CompiledJavaVersionBuildItem compiledJavaVersionBuildItem,
             ResourceInterceptorsBuildItem resourceInterceptorsBuildItem,
-            Capabilities capabilities)
-            throws NoSuchMethodException {
+            Capabilities capabilities,
+            Optional<AllowNotRestParametersBuildItem> allowNotRestParametersBuildItem) {
 
         if (!resourceScanningResultBuildItem.isPresent()) {
             // no detected @Path, bail out
@@ -528,8 +530,8 @@ public class ResteasyReactiveProcessor {
                             }
 
                             if (!result.getPossibleSubResources().containsKey(method.returnType().name())) {
-                                reflectiveHierarchy.produce(new ReflectiveHierarchyBuildItem.Builder()
-                                        .type(method.returnType())
+                                reflectiveHierarchy.produce(ReflectiveHierarchyBuildItem
+                                        .builder(method.returnType())
                                         .index(index)
                                         .ignoreTypePredicate(
                                                 QuarkusResteasyReactiveDotNames.IGNORE_TYPE_FOR_REFLECTION_PREDICATE)
@@ -545,8 +547,8 @@ public class ResteasyReactiveProcessor {
                             for (short i = 0; i < method.parametersCount(); i++) {
                                 Type parameterType = method.parameterType(i);
                                 if (!hasAnnotation(method, i, ResteasyReactiveServerDotNames.CONTEXT)) {
-                                    reflectiveHierarchy.produce(new ReflectiveHierarchyBuildItem.Builder()
-                                            .type(parameterType)
+                                    reflectiveHierarchy.produce(ReflectiveHierarchyBuildItem
+                                            .builder(parameterType)
                                             .index(index)
                                             .ignoreTypePredicate(
                                                     QuarkusResteasyReactiveDotNames.IGNORE_TYPE_FOR_REFLECTION_PREDICATE)
@@ -634,6 +636,8 @@ public class ResteasyReactiveProcessor {
                         }
                     });
 
+            serverEndpointIndexerBuilder.skipNotRestParameters(allowNotRestParametersBuildItem.isPresent());
+
             if (!serverDefaultProducesHandlers.isEmpty()) {
                 List<DefaultProducesHandler> handlers = new ArrayList<>(serverDefaultProducesHandlers.size());
                 for (ServerDefaultProducesHandlerBuildItem bi : serverDefaultProducesHandlers) {
@@ -644,11 +648,12 @@ public class ResteasyReactiveProcessor {
             }
 
             if (!annotationTransformerBuildItems.isEmpty()) {
-                List<AnnotationsTransformer> annotationsTransformers = new ArrayList<>(annotationTransformerBuildItems.size());
+                List<AnnotationTransformation> annotationTransformations = new ArrayList<>(
+                        annotationTransformerBuildItems.size());
                 for (AnnotationsTransformerBuildItem bi : annotationTransformerBuildItems) {
-                    annotationsTransformers.add(bi.getAnnotationsTransformer());
+                    annotationTransformations.add(bi.getAnnotationTransformation());
                 }
-                serverEndpointIndexerBuilder.setAnnotationsTransformers(annotationsTransformers);
+                serverEndpointIndexerBuilder.setAnnotationTransformations(annotationTransformations);
             }
 
             serverEndpointIndexerBuilder.setMultipartReturnTypeIndexerExtension(new QuarkusMultipartReturnTypeHandler(
@@ -1365,9 +1370,13 @@ public class ResteasyReactiveProcessor {
 
     @BuildStep
     @Record(value = ExecutionTime.STATIC_INIT)
-    public FilterBuildItem addDefaultAuthFailureHandler(ResteasyReactiveRecorder recorder) {
+    public FilterBuildItem addDefaultAuthFailureHandler(ResteasyReactiveRecorder recorder,
+            ResteasyReactiveDeploymentBuildItem deployment,
+            Optional<ObservabilityIntegrationBuildItem> observabilityIntegrationBuildItem) {
         // replace default auth failure handler added by vertx-http so that our exception mappers can customize response
-        return new FilterBuildItem(recorder.defaultAuthFailureHandler(), FilterBuildItem.AUTHENTICATION - 1);
+        return new FilterBuildItem(
+                recorder.defaultAuthFailureHandler(deployment.getDeployment(), observabilityIntegrationBuildItem.isPresent()),
+                FilterBuildItem.AUTHENTICATION - 1);
     }
 
     private void checkForDuplicateEndpoint(ResteasyReactiveConfig config, Map<String, List<EndpointConfig>> allMethods) {

@@ -38,15 +38,12 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <version.junit>5.10.2</version.junit>
-        <version.assertj>3.25.3</version.assertj>
-        <version.jandex>3.1.7</version.jandex>
+        <version.junit>5.10.3</version.junit>
+        <version.assertj>3.26.0</version.assertj>
+        <version.jandex>3.2.0</version.jandex>
         <version.gizmo>1.8.0</version.gizmo>
-        <version.jboss-logging>3.5.3.Final</version.jboss-logging>
-        <version.compiler.plugin>3.12.1</version.compiler.plugin>
-        <version.enforcer.plugin>3.2.1</version.enforcer.plugin>
-        <version.surefire.plugin>3.2.5</version.surefire.plugin>
-        <version.smallrye-mutiny>2.6.0</version.smallrye-mutiny>
+        <version.jboss-logging>3.6.0.Final</version.jboss-logging>
+        <version.smallrye-mutiny>2.6.1</version.smallrye-mutiny>
     </properties>
 
     <modules>
@@ -107,7 +104,6 @@
             <plugins>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>${version.compiler.plugin}</version>
                 </plugin>
                 <plugin>
                     <artifactId>maven-javadoc-plugin</artifactId>
@@ -129,6 +125,7 @@
                     <executions>
                         <execution>
                             <id>enforce</id>
+                            <phase>${maven-enforcer-plugin.phase}</phase>
                             <configuration>
                                 <rules>
                                     <dependencyConvergence/>
@@ -151,7 +148,6 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>${version.surefire.plugin}</version>
                     <configuration>
                         <!-- combine.self suppresses warnings about java.io.tmpdir being defined twice -->
                         <systemPropertyVariables combine.self="override"/>
@@ -163,7 +159,6 @@
                 <plugin>
                     <groupId>net.revelc.code.formatter</groupId>
                     <artifactId>formatter-maven-plugin</artifactId>
-                    <version>2.23.0</version>
                     <dependencies>
                         <dependency>
                             <artifactId>quarkus-ide-config</artifactId>
@@ -182,7 +177,6 @@
                 <plugin>
                     <groupId>net.revelc.code</groupId>
                     <artifactId>impsort-maven-plugin</artifactId>
-                    <version>1.9.0</version>
                     <configuration>
                         <!-- store outside of target to speed up formatting when mvn clean is used -->
                         <cachedir>.cache/impsort-maven-plugin-${impsort-maven-plugin.version}</cachedir>

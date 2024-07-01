@@ -85,6 +85,11 @@ class SharedArchivePathTree extends ArchivePathTree {
         }
 
         @Override
+        public OpenPathTree open() {
+            return SharedArchivePathTree.this.open();
+        }
+
+        @Override
         public void close() throws IOException {
             writeLock().lock();
             final boolean close = users.decrementAndGet() == 0;
@@ -156,6 +161,11 @@ class SharedArchivePathTree extends ArchivePathTree {
         @Override
         public void accept(String relativePath, Consumer<PathVisit> consumer) {
             delegate.accept(relativePath, consumer);
+        }
+
+        @Override
+        public void acceptAll(String relativePath, Consumer<PathVisit> consumer) {
+            delegate.acceptAll(relativePath, consumer);
         }
 
         @Override

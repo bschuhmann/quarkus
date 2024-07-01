@@ -6,20 +6,24 @@ import java.util.Map;
 import java.util.Set;
 
 import org.hamcrest.Matchers;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import io.quarkus.oidc.runtime.OidcUtils;
-import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.security.spi.runtime.AuthorizationSuccessEvent;
+import io.quarkus.test.common.WithTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
 import io.quarkus.test.oidc.server.OidcWiremockTestResource;
+import io.quarkus.vertx.http.runtime.security.AbstractPathMatchingHttpSecurityPolicy;
 import io.restassured.RestAssured;
 import io.smallrye.jwt.build.Jwt;
 
 @QuarkusTest
 @TestProfile(AnnotationBasedTenantTest.NoProactiveAuthTestProfile.class)
-@QuarkusTestResource(OidcWiremockTestResource.class)
+@WithTestResource(value = OidcWiremockTestResource.class, restrictToAnnotatedClass = false)
 public class AnnotationBasedTenantTest {
     public static class NoProactiveAuthTestProfile implements QuarkusTestProfile {
         public Map<String, String> getConfigOverrides() {
@@ -28,6 +32,7 @@ public class AnnotationBasedTenantTest {
                     Map.entry("quarkus.oidc.hr.auth-server-url", "http://localhost:8180/auth/realms/quarkus2/"),
                     Map.entry("quarkus.oidc.hr.client-id", "quarkus-app"),
                     Map.entry("quarkus.oidc.hr.credentials.secret", "secret"),
+                    Map.entry("quarkus.oidc.hr.tenant-paths", "/api/tenant-echo/http-security-policy-applies-all-same"),
                     Map.entry("quarkus.oidc.hr.token.audience", "http://hr.service"),
                     Map.entry("quarkus.http.auth.policy.roles1.roles-allowed", "role1"),
                     Map.entry("quarkus.http.auth.policy.roles2.roles-allowed", "role2"),
@@ -59,7 +64,16 @@ public class AnnotationBasedTenantTest {
                     Map.entry("quarkus.http.auth.permission.identity-augmentation.paths",
                             "/api/tenant-echo/hr-identity-augmentation"),
                     Map.entry("quarkus.http.auth.permission.identity-augmentation.policy", "roles3"),
-                    Map.entry("quarkus.http.auth.permission.identity-augmentation.applies-to", "JAXRS"));
+                    Map.entry("quarkus.http.auth.permission.identity-augmentation.applies-to", "JAXRS"),
+                    Map.entry("quarkus.http.auth.permission.tenant-annotation-applies-all.paths",
+                            "/api/tenant-echo/http-security-policy-applies-all-diff,/api/tenant-echo/http-security-policy-applies-all-same"),
+                    Map.entry("quarkus.http.auth.permission.tenant-annotation-applies-all.policy", "admin-role"),
+                    Map.entry("quarkus.http.auth.policy.admin-role.roles-allowed", "admin"));
+        }
+
+        @Override
+        public String getConfigProfile() {
+            return "jax-rs-http-perms-test";
         }
     }
 
@@ -204,9 +218,7 @@ public class AnnotationBasedTenantTest {
             token = getTokenWithRole("role1");
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo2/hr-classic-perm-check")
-                    .then().statusCode(200)
-                    .body(Matchers.equalTo(("tenant-id=hr, static.tenant.id=null, name=alice, "
-                            + OidcUtils.TENANT_ID_SET_BY_ANNOTATION + "=hr")));
+                    .then().statusCode(401);
 
             token = getTokenWithRole("wrong-role");
             RestAssured.given().auth().oauth2(token)
@@ -239,21 +251,18 @@ public class AnnotationBasedTenantTest {
             token = getTokenWithRole("role2");
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo/hr-classic-and-jaxrs-perm-check")
-                    .then().statusCode(403);
+                    .then().statusCode(401);
 
             // roles allowed security check (created for @RolesAllowed) fails over missing role "role3"
             token = getTokenWithRole("role2", "role1");
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo/hr-classic-and-jaxrs-perm-check")
-                    .then().statusCode(403);
+                    .then().statusCode(401);
 
             token = getTokenWithRole("role3", "role2", "role1");
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo/hr-classic-and-jaxrs-perm-check")
-                    .then().statusCode(200)
-                    // static tenant is null as the permission check "combined-part1" happened before @Tenant
-                    .body(Matchers.equalTo(("tenant-id=hr, static.tenant.id=null, name=alice, "
-                            + OidcUtils.TENANT_ID_SET_BY_ANNOTATION + "=hr")));
+                    .then().statusCode(401);
         } finally {
             server.stop();
         }
@@ -282,15 +291,12 @@ public class AnnotationBasedTenantTest {
             token = getTokenWithRole("role2");
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo2/hr-classic-and-jaxrs-perm-check")
-                    .then().statusCode(403);
+                    .then().statusCode(401);
 
             token = getTokenWithRole("role2", "role1");
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo2/hr-classic-and-jaxrs-perm-check")
-                    .then().statusCode(200)
-                    // static tenant is null as the permission check "combined-part1" happened before @Tenant
-                    .body(Matchers.equalTo(("tenant-id=hr, static.tenant.id=null, name=alice, "
-                            + OidcUtils.TENANT_ID_SET_BY_ANNOTATION + "=hr")));
+                    .then().statusCode(401);
         } finally {
             server.stop();
         }
@@ -303,23 +309,67 @@ public class AnnotationBasedTenantTest {
         try {
             // pass JAX-RS permission check but missing permission
             String token = getTokenWithRole("role2");
+            AuthEventObserver.clearEvents();
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo/hr-identity-augmentation")
                     .then().statusCode(403);
+            Assertions.assertEquals(1, AuthEventObserver.getAuthorizationFailureEvents().size());
 
             token = getTokenWithRole("role3");
+            AuthEventObserver.clearEvents();
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo/hr-identity-augmentation")
                     .then().statusCode(200)
                     .body(Matchers.equalTo(("tenant-id=hr, static.tenant.id=hr, name=alice, "
                             + OidcUtils.TENANT_ID_SET_BY_ANNOTATION + "=hr")));
+            // expect one JAX-RS HTTP Permission check and one Security check for the PermissionsAllowed annotation
+            Assertions.assertEquals(2, AuthEventObserver.getAuthorizationSuccessEvents().size());
+            AuthorizationSuccessEvent successEvent = AuthEventObserver
+                    .getAuthorizationSuccessEvents()
+                    .stream()
+                    .filter(ev -> AbstractPathMatchingHttpSecurityPolicy.class.getName()
+                            .equals(ev.getEventProperties().get(AuthorizationSuccessEvent.AUTHORIZATION_CONTEXT)))
+                    .findFirst()
+                    .orElseThrow();
 
             token = getTokenWithRole("role4");
+            AuthEventObserver.clearEvents();
             RestAssured.given().auth().oauth2(token)
                     .when().get("/api/tenant-echo/hr-identity-augmentation")
                     .then().statusCode(200)
                     .body(Matchers.equalTo(("tenant-id=hr, static.tenant.id=hr, name=alice, "
                             + OidcUtils.TENANT_ID_SET_BY_ANNOTATION + "=hr")));
+            // quarkus.http.auth.roles-mapping mapped role4 to role3, check that role3 is already present inside authN event
+            Assertions.assertEquals(1, AuthEventObserver.getAuthenticationSuccessEvents().size());
+            SecurityIdentity identity = AuthEventObserver.getAuthenticationSuccessEvents().get(0)
+                    .getSecurityIdentity();
+            Assertions.assertNotNull(identity);
+            Assertions.assertTrue(identity.hasRole("role3"));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void testPolicyAppliedBeforeTenantAnnotationMatched() {
+        WiremockTestResource server = new WiremockTestResource();
+        server.start();
+        try {
+            // policy applied before @Tenant annotation has been matched and different tenant has been used for auth
+            // than the one that @Tenant annotation selects
+            var token = getNonHrTenantAccessToken(Set.of("admin"));
+            RestAssured.given().auth().oauth2(token)
+                    .when().get("/api/tenant-echo/http-security-policy-applies-all-diff")
+                    .then().statusCode(401);
+
+            // policy applied before @Tenant annotation has been matched and different tenant has been used for auth
+            // than the one that @Tenant annotation selects
+            token = getTokenWithRole("admin");
+            RestAssured.given().auth().oauth2(token)
+                    .when().get("/api/tenant-echo/http-security-policy-applies-all-same")
+                    .then().statusCode(200)
+                    .body(Matchers
+                            .equalTo("tenant-id=null, static.tenant.id=hr, name=alice, tenant-id-set-by-annotation=null"));
         } finally {
             server.stop();
         }
@@ -332,5 +382,15 @@ public class AnnotationBasedTenantTest {
                 .jws()
                 .keyId("1")
                 .sign("privateKey.jwk");
+    }
+
+    private String getNonHrTenantAccessToken(Set<String> groups) {
+        return Jwt.preferredUserName("alice")
+                .groups(groups)
+                .issuer("https://server.example.com")
+                .audience("https://service.example.com")
+                .jws()
+                .keyId("1")
+                .sign();
     }
 }

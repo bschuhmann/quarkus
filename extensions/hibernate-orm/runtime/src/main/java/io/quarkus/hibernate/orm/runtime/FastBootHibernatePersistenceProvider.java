@@ -30,7 +30,7 @@ import io.quarkus.arc.Arc;
 import io.quarkus.datasource.common.runtime.DataSourceUtil;
 import io.quarkus.hibernate.orm.runtime.RuntimeSettings.Builder;
 import io.quarkus.hibernate.orm.runtime.boot.FastBootEntityManagerFactoryBuilder;
-import io.quarkus.hibernate.orm.runtime.boot.RuntimePersistenceUnitDescriptor;
+import io.quarkus.hibernate.orm.runtime.boot.QuarkusPersistenceUnitDescriptor;
 import io.quarkus.hibernate.orm.runtime.boot.registry.PreconfiguredServiceRegistryBuilder;
 import io.quarkus.hibernate.orm.runtime.config.DatabaseOrmCompatibilityVersion;
 import io.quarkus.hibernate.orm.runtime.integration.HibernateOrmIntegrationRuntimeDescriptor;
@@ -137,7 +137,7 @@ public final class FastBootHibernatePersistenceProvider implements PersistencePr
         verifyProperties(properties);
 
         // These are pre-parsed during image generation:
-        final List<RuntimePersistenceUnitDescriptor> units = PersistenceUnitsHolder.getPersistenceUnitDescriptors();
+        final List<QuarkusPersistenceUnitDescriptor> units = PersistenceUnitsHolder.getPersistenceUnitDescriptors();
 
         log.debugf("Located %s persistence units; checking each", units.size());
 
@@ -147,7 +147,7 @@ public final class FastBootHibernatePersistenceProvider implements PersistencePr
             throw new PersistenceException("No name provided and multiple persistence units found");
         }
 
-        for (RuntimePersistenceUnitDescriptor persistenceUnit : units) {
+        for (QuarkusPersistenceUnitDescriptor persistenceUnit : units) {
             log.debugf(
                     "Checking persistence-unit [name=%s, explicit-provider=%s] against incoming persistence unit name [%s]",
                     persistenceUnit.getName(), persistenceUnit.getProviderClassName(), persistenceUnitName);
@@ -223,7 +223,7 @@ public final class FastBootHibernatePersistenceProvider implements PersistencePr
         }
 
         // Allow detection of driver/database capabilities on runtime init (was disabled during static init)
-        runtimeSettingsBuilder.put("hibernate.temp.use_jdbc_metadata_defaults", "true");
+        runtimeSettingsBuilder.put("hibernate.boot.allow_jdbc_metadata_access", "true");
 
         if (!persistenceUnitConfig.unsupportedProperties().isEmpty()) {
             log.warnf("Persistence-unit [%s] sets unsupported properties."
@@ -437,6 +437,10 @@ public final class FastBootHibernatePersistenceProvider implements PersistencePr
 
             if (persistenceUnitConfig.log().formatSql()) {
                 runtimeSettingsBuilder.put(AvailableSettings.FORMAT_SQL, "true");
+            }
+
+            if (persistenceUnitConfig.log().highlightSql()) {
+                runtimeSettingsBuilder.put(AvailableSettings.HIGHLIGHT_SQL, "true");
             }
         }
 

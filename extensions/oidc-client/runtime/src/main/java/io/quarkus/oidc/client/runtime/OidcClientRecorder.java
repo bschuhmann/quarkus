@@ -10,8 +10,11 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import jakarta.enterprise.inject.CreationException;
+
 import org.jboss.logging.Logger;
 
+import io.quarkus.arc.Arc;
 import io.quarkus.oidc.client.OidcClient;
 import io.quarkus.oidc.client.OidcClientConfig;
 import io.quarkus.oidc.client.OidcClientConfig.Grant;
@@ -23,9 +26,10 @@ import io.quarkus.oidc.common.OidcRequestContextProperties;
 import io.quarkus.oidc.common.OidcRequestFilter;
 import io.quarkus.oidc.common.runtime.OidcCommonUtils;
 import io.quarkus.oidc.common.runtime.OidcConstants;
-import io.quarkus.runtime.TlsConfig;
 import io.quarkus.runtime.annotations.Recorder;
 import io.quarkus.runtime.configuration.ConfigurationException;
+import io.quarkus.tls.TlsConfiguration;
+import io.quarkus.tls.TlsConfigurationRegistry;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.client.WebClientOptions;
@@ -39,65 +43,71 @@ public class OidcClientRecorder {
     private static final String CLIENT_ID_ATTRIBUTE = "client-id";
     private static final String DEFAULT_OIDC_CLIENT_ID = "Default";
 
-    public OidcClients setup(OidcClientsConfig oidcClientsConfig, TlsConfig tlsConfig, Supplier<Vertx> vertx) {
+    private static OidcClients setup(OidcClientsConfig oidcClientsConfig, Supplier<Vertx> vertx,
+            Supplier<TlsConfigurationRegistry> registrySupplier) {
 
         String defaultClientId = oidcClientsConfig.defaultClient.getId().orElse(DEFAULT_OIDC_CLIENT_ID);
-        OidcClient defaultClient = createOidcClient(oidcClientsConfig.defaultClient, defaultClientId, tlsConfig, vertx);
+        var defaultTlsConfiguration = registrySupplier.get().getDefault().orElse(null);
+        OidcClient defaultClient = createOidcClient(oidcClientsConfig.defaultClient, defaultClientId, vertx,
+                defaultTlsConfiguration);
 
         Map<String, OidcClient> staticOidcClients = new HashMap<>();
 
         for (Map.Entry<String, OidcClientConfig> config : oidcClientsConfig.namedClients.entrySet()) {
             OidcCommonUtils.verifyConfigurationId(defaultClientId, config.getKey(), config.getValue().getId());
             staticOidcClients.put(config.getKey(),
-                    createOidcClient(config.getValue(), config.getKey(), tlsConfig, vertx));
+                    createOidcClient(config.getValue(), config.getKey(), vertx, defaultTlsConfiguration));
         }
 
         return new OidcClientsImpl(defaultClient, staticOidcClients,
                 new Function<OidcClientConfig, Uni<OidcClient>>() {
                     @Override
                     public Uni<OidcClient> apply(OidcClientConfig config) {
-                        return createOidcClientUni(config, config.getId().get(), tlsConfig, vertx);
+                        return createOidcClientUni(config, config.getId().get(), vertx,
+                                registrySupplier.get().getDefault().orElse(null));
                     }
                 });
     }
 
-    public Supplier<OidcClient> createOidcClientBean(OidcClients clients) {
+    public Supplier<OidcClient> createOidcClientBean() {
         return new Supplier<OidcClient>() {
 
             @Override
             public OidcClient get() {
-                return clients.getClient();
+                return Arc.container().instance(OidcClients.class).get().getClient();
             }
         };
     }
 
-    public Supplier<OidcClient> createOidcClientBean(OidcClients clients, String clientName) {
+    public Supplier<OidcClient> createOidcClientBean(String clientName) {
         return new Supplier<OidcClient>() {
 
             @Override
             public OidcClient get() {
-                return clients.getClient(clientName);
+                return Arc.container().instance(OidcClients.class).get().getClient(clientName);
             }
         };
     }
 
-    public Supplier<OidcClients> createOidcClientsBean(OidcClients clients) {
+    public Supplier<OidcClients> createOidcClientsBean(OidcClientsConfig oidcClientsConfig, Supplier<Vertx> vertx,
+            Supplier<TlsConfigurationRegistry> registrySupplier) {
         return new Supplier<OidcClients>() {
 
             @Override
             public OidcClients get() {
-                return clients;
+                return setup(oidcClientsConfig, vertx, registrySupplier);
             }
         };
     }
 
-    protected static OidcClient createOidcClient(OidcClientConfig oidcConfig, String oidcClientId,
-            TlsConfig tlsConfig, Supplier<Vertx> vertx) {
-        return createOidcClientUni(oidcConfig, oidcClientId, tlsConfig, vertx).await().atMost(oidcConfig.connectionTimeout);
+    protected static OidcClient createOidcClient(OidcClientConfig oidcConfig, String oidcClientId, Supplier<Vertx> vertx,
+            TlsConfiguration defaultTlsConfiguration) {
+        return createOidcClientUni(oidcConfig, oidcClientId, vertx, defaultTlsConfiguration).await()
+                .atMost(oidcConfig.connectionTimeout);
     }
 
     protected static Uni<OidcClient> createOidcClientUni(OidcClientConfig oidcConfig, String oidcClientId,
-            TlsConfig tlsConfig, Supplier<Vertx> vertx) {
+            Supplier<Vertx> vertx, TlsConfiguration defaultTlsConfiguration) {
         if (!oidcConfig.isClientEnabled()) {
             String message = String.format("'%s' client configuration is disabled", oidcClientId);
             LOG.debug(message);
@@ -122,7 +132,7 @@ public class OidcClientRecorder {
 
         WebClientOptions options = new WebClientOptions();
 
-        OidcCommonUtils.setHttpClientOptions(oidcConfig, tlsConfig, options);
+        OidcCommonUtils.setHttpClientOptions(oidcConfig, options, defaultTlsConfiguration);
 
         var mutinyVertx = new io.vertx.mutiny.core.Vertx(vertx.get());
         WebClient client = WebClient.create(mutinyVertx, options);
@@ -239,6 +249,19 @@ public class OidcClientRecorder {
         return new OidcClientException(OidcCommonUtils.formatConnectionErrorMessage(authServerUrlString), cause);
     }
 
+    public void initOidcClients() {
+        try {
+            // makes sure that OIDC Clients are created at the latest when runtime synthetic beans are ready
+            Arc.container().instance(OidcClients.class).get();
+        } catch (CreationException wrapper) {
+            if (wrapper.getCause() instanceof RuntimeException runtimeException) {
+                // so that users see ConfigurationException etc. without noise
+                throw runtimeException;
+            }
+            throw wrapper;
+        }
+    }
+
     private static class DisabledOidcClient implements OidcClient {
         String message;
 
@@ -248,17 +271,17 @@ public class OidcClientRecorder {
 
         @Override
         public Uni<Tokens> getTokens(Map<String, String> additionalGrantParameters) {
-            throw new DisabledOidcClientException(message);
+            return Uni.createFrom().failure(new DisabledOidcClientException(message));
         }
 
         @Override
         public Uni<Tokens> refreshTokens(String refreshToken, Map<String, String> additionalGrantParameters) {
-            throw new DisabledOidcClientException(message);
+            return Uni.createFrom().failure(new DisabledOidcClientException(message));
         }
 
         @Override
         public Uni<Boolean> revokeAccessToken(String accessToken, Map<String, String> additionalParameters) {
-            throw new DisabledOidcClientException(message);
+            return Uni.createFrom().failure(new DisabledOidcClientException(message));
         }
 
         @Override

@@ -22,9 +22,9 @@ import org.apache.maven.project.MavenProject;
 import org.eclipse.aether.repository.RemoteRepository;
 
 import io.quarkus.bootstrap.resolver.BootstrapAppModelResolver;
-import io.quarkus.bootstrap.resolver.maven.ApplicationDependencyModelResolver;
 import io.quarkus.bootstrap.resolver.maven.BootstrapMavenContext;
 import io.quarkus.bootstrap.resolver.maven.DependencyLoggingConfig;
+import io.quarkus.bootstrap.resolver.maven.IncubatingApplicationModelResolver;
 import io.quarkus.bootstrap.resolver.maven.MavenArtifactResolver;
 import io.quarkus.maven.components.QuarkusWorkspaceProvider;
 import io.quarkus.maven.dependency.ArtifactCoords;
@@ -147,8 +147,9 @@ public class DependencyTreeMojo extends AbstractMojo {
                             "Parameter 'mode' was set to '" + mode + "' while expected one of 'dev', 'test' or 'prod'");
                 }
             }
+            // enable the incubating model resolver impl by default for this mojo
             modelResolver.setIncubatingModelResolver(
-                    ApplicationDependencyModelResolver.isIncubatingEnabled(project.getProperties()));
+                    !IncubatingApplicationModelResolver.isIncubatingModelResolverProperty(project.getProperties(), "false"));
             modelResolver.setDepLogConfig(DependencyLoggingConfig.builder()
                     .setMessageConsumer(log)
                     .setVerbose(verbose)

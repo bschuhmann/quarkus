@@ -25,6 +25,7 @@ import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNa
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.HTTP_HEADERS;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.INSTANT;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.INTEGER;
+import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.JAX_RS_ANNOTATIONS_FOR_FIELDS;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.LIST;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.LOCAL_DATE;
 import static org.jboss.resteasy.reactive.common.processor.ResteasyReactiveDotNames.LOCAL_DATE_TIME;
@@ -109,6 +110,7 @@ import jakarta.ws.rs.sse.SseEventSink;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
+import org.jboss.jandex.AnnotationTransformation;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ArrayType;
 import org.jboss.jandex.ClassInfo;
@@ -237,6 +239,8 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
     private final Function<ClassInfo, Supplier<Boolean>> isDisabledCreator;
 
     private final Predicate<Map<DotName, AnnotationInstance>> skipMethodParameter;
+    private final boolean skipNotRestParameters;
+
     private SerializerScanningResult serializerScanningResult;
 
     protected EndpointIndexer(Builder<T, ?, METHOD> builder) {
@@ -254,7 +258,7 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
         this.classLevelExceptionMappers = builder.classLevelExceptionMappers;
         this.factoryCreator = builder.factoryCreator;
         this.resourceMethodCallback = builder.resourceMethodCallback;
-        this.annotationStore = new AnnotationStore(builder.annotationsTransformers);
+        this.annotationStore = new AnnotationStore(builder.index, builder.annotationsTransformers);
         this.applicationScanningResult = builder.applicationScanningResult;
         this.contextTypes = builder.contextTypes;
         this.parameterContainerTypes = builder.parameterContainerTypes;
@@ -262,6 +266,7 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
         this.targetJavaVersion = builder.targetJavaVersion;
         this.isDisabledCreator = builder.isDisabledCreator;
         this.skipMethodParameter = builder.skipMethodParameter;
+        this.skipNotRestParameters = builder.skipNotRestParameters;
     }
 
     public Optional<ResourceClass> createEndpoints(ClassInfo classInfo, boolean considerApplication) {
@@ -576,7 +581,7 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
                 Type paramType = currentMethodInfo.parameterType(i);
                 String errorLocation = "method " + currentMethodInfo + " on class " + currentMethodInfo.declaringClass();
 
-                if (skipParameter(anns)) {
+                if (skipParameter(anns) || skipNotRestParameters(skipNotRestParameters).apply(anns)) {
                     parameterResult = createIndexedParam()
                             .setCurrentClassInfo(currentClassInfo)
                             .setActualEndpointInfo(actualEndpointInfo)
@@ -780,6 +785,19 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
     protected void warnAboutMissUsedBodyParameter(DotName httpMethod, MethodInfo methodInfo) {
         log.warn("Using a body parameter with " + httpMethod + " is strongly discouraged. Offending method is '"
                 + methodInfo.declaringClass().name() + "#" + methodInfo + "'");
+    }
+
+    private Function<Map<DotName, AnnotationInstance>, Boolean> skipNotRestParameters(boolean skipAllNotMethodParameter) {
+        return new Function<Map<DotName, AnnotationInstance>, Boolean>() {
+            @Override
+            public Boolean apply(Map<DotName, AnnotationInstance> anns) {
+                if (skipAllNotMethodParameter) {
+                    return anns.size() > 0
+                            && JAX_RS_ANNOTATIONS_FOR_FIELDS.stream().noneMatch(dotName -> anns.containsKey(dotName));
+                }
+                return false;
+            }
+        };
     }
 
     protected boolean skipParameter(Map<DotName, AnnotationInstance> anns) {
@@ -1662,7 +1680,7 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
         private boolean hasRuntimeConverters;
         private Map<DotName, Map<String, String>> classLevelExceptionMappers;
         private Consumer<ResourceMethodCallbackEntry> resourceMethodCallback;
-        private Collection<AnnotationsTransformer> annotationsTransformers;
+        private Collection<AnnotationTransformation> annotationsTransformers;
         private ApplicationScanningResult applicationScanningResult;
         private final Set<DotName> contextTypes = new HashSet<>(DEFAULT_CONTEXT_TYPES);
         private final Set<DotName> parameterContainerTypes = new HashSet<>();
@@ -1678,6 +1696,8 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
         private Function<ClassInfo, Supplier<Boolean>> isDisabledCreator = null;
 
         private Predicate<Map<DotName, AnnotationInstance>> skipMethodParameter = null;
+
+        private boolean skipNotRestParameters = false;
 
         public B setMultipartReturnTypeIndexerExtension(MultipartReturnTypeIndexerExtension multipartReturnTypeHandler) {
             this.multipartReturnTypeIndexerExtension = multipartReturnTypeHandler;
@@ -1774,8 +1794,19 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
             return (B) this;
         }
 
+        /**
+         * @deprecated use {@link #setAnnotationTransformations(Collection)}
+         */
+        @Deprecated(forRemoval = true)
         public B setAnnotationsTransformers(Collection<AnnotationsTransformer> annotationsTransformers) {
-            this.annotationsTransformers = annotationsTransformers;
+            List<AnnotationTransformation> transformations = new ArrayList<>(annotationsTransformers.size());
+            transformations.addAll(annotationsTransformers);
+            this.annotationsTransformers = transformations;
+            return (B) this;
+        }
+
+        public B setAnnotationTransformations(Collection<AnnotationTransformation> annotationTransformations) {
+            this.annotationsTransformers = annotationTransformations;
             return (B) this;
         }
 
@@ -1798,6 +1829,11 @@ public abstract class EndpointIndexer<T extends EndpointIndexer<T, PARAM, METHOD
         public B setSkipMethodParameter(
                 Predicate<Map<DotName, AnnotationInstance>> skipMethodParameter) {
             this.skipMethodParameter = skipMethodParameter;
+            return (B) this;
+        }
+
+        public B skipNotRestParameters(boolean skipNotRestParameters) {
+            this.skipNotRestParameters = skipNotRestParameters;
             return (B) this;
         }
 

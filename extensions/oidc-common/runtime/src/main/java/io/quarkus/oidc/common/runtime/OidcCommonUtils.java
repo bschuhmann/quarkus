@@ -28,6 +28,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 
 import org.jboss.logging.Logger;
@@ -44,9 +45,9 @@ import io.quarkus.oidc.common.runtime.OidcCommonConfig.Credentials;
 import io.quarkus.oidc.common.runtime.OidcCommonConfig.Credentials.Provider;
 import io.quarkus.oidc.common.runtime.OidcCommonConfig.Credentials.Secret;
 import io.quarkus.oidc.common.runtime.OidcCommonConfig.Tls.Verification;
-import io.quarkus.runtime.TlsConfig;
 import io.quarkus.runtime.configuration.ConfigurationException;
 import io.quarkus.runtime.util.ClassPathUtils;
+import io.quarkus.tls.TlsConfiguration;
 import io.smallrye.jwt.algorithm.SignatureAlgorithm;
 import io.smallrye.jwt.build.Jwt;
 import io.smallrye.jwt.build.JwtSignatureBuilder;
@@ -129,15 +130,18 @@ public class OidcCommonUtils {
 
     public static String urlEncode(String value) {
         try {
-            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+            return URLEncoder.encode(value, StandardCharsets.UTF_8);
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
-    public static void setHttpClientOptions(OidcCommonConfig oidcConfig, TlsConfig tlsConfig, HttpClientOptions options) {
+    public static void setHttpClientOptions(OidcCommonConfig oidcConfig, HttpClientOptions options,
+            TlsConfiguration defaultTlsConfiguration) {
+        var globalTrustAll = defaultTlsConfiguration != null && defaultTlsConfiguration.isTrustAll();
+
         boolean trustAll = oidcConfig.tls.verification.isPresent() ? oidcConfig.tls.verification.get() == Verification.NONE
-                : tlsConfig.trustAll;
+                : globalTrustAll;
         if (trustAll) {
             options.setTrustAll(true);
             options.setVerifyHost(false);
@@ -293,12 +297,33 @@ public class OidcCommonUtils {
         return clientSecretMethod(creds) == Secret.Method.POST_JWT && isClientJwtAuthRequired(creds);
     }
 
+    public static boolean isJwtAssertion(Credentials creds) {
+        return creds.getJwt().isAssertion();
+    }
+
     public static String clientSecret(Credentials creds) {
         return creds.secret.orElse(creds.clientSecret.value.orElseGet(fromCredentialsProvider(creds.clientSecret.provider)));
     }
 
     public static String jwtSecret(Credentials creds) {
         return creds.jwt.secret.orElseGet(fromCredentialsProvider(creds.jwt.secretProvider));
+    }
+
+    public static String getClientOrJwtSecret(Credentials creds) {
+        LOG.debug("Trying to get the configured client secret");
+        String encSecret = clientSecret(creds);
+        if (encSecret == null) {
+            LOG.debug("Client secret is not configured, "
+                    + "trying to get the configured 'client_jwt_secret' secret");
+            encSecret = jwtSecret(creds);
+        }
+        return encSecret;
+    }
+
+    public static SecretKey generateSecretKey() throws Exception {
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256);
+        return keyGenerator.generateKey();
     }
 
     public static Secret.Method clientSecretMethod(Credentials creds) {
@@ -312,10 +337,9 @@ public class OidcCommonUtils {
             public String get() {
                 if (provider.key.isPresent()) {
                     String providerName = provider.name.orElse(null);
+                    String keyringName = provider.keyringName.orElse(null);
                     CredentialsProvider credentialsProvider = CredentialsProviderFinder.find(providerName);
-                    if (credentialsProvider != null) {
-                        return credentialsProvider.getCredentials(providerName).get(provider.key.get());
-                    }
+                    return credentialsProvider.getCredentials(keyringName).get(provider.key.get());
                 }
                 return null;
             }
@@ -546,7 +570,6 @@ public class OidcCommonUtils {
             combined.addAll(all);
             return combined;
         }
-
     }
 
     public static Uni<HttpResponse<Buffer>> sendRequest(io.vertx.core.Vertx vertx, HttpRequest<Buffer> request,

@@ -89,7 +89,6 @@ import io.quarkus.dev.testing.TracingHandler;
 import io.quarkus.runtime.ApplicationLifecycleManager;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.configuration.DurationConverter;
-import io.quarkus.runtime.configuration.ProfileManager;
 import io.quarkus.runtime.logging.JBossVersion;
 import io.quarkus.runtime.test.TestHttpEndpointProvider;
 import io.quarkus.test.TestMethodInvoker;
@@ -238,6 +237,7 @@ public class QuarkusTestExtension extends AbstractJvmQuarkusTestExtension
             Map<String, String> properties = (Map<String, String>) testResourceManager.getClass().getMethod("start")
                     .invoke(testResourceManager);
             startupAction.overrideConfig(properties);
+            startupAction.addRuntimeCloseTask(testResourceManager);
             hasPerTestResources = (boolean) testResourceManager.getClass().getMethod("hasPerTestResources")
                     .invoke(testResourceManager);
 
@@ -277,7 +277,6 @@ public class QuarkusTestExtension extends AbstractJvmQuarkusTestExtension
             RestorableSystemProperties restorableSystemProperties = RestorableSystemProperties.setProperties(
                     Collections.singletonMap("test.url", TestHTTPResourceManager.getUri(runningQuarkusApplication)));
 
-            Closeable tm = testResourceManager;
             Closeable shutdownTask = new Closeable() {
                 @Override
                 public void close() throws IOException {
@@ -293,12 +292,8 @@ public class QuarkusTestExtension extends AbstractJvmQuarkusTestExtension
                                 shutdownTasks.pop().run();
                             }
                         } finally {
-                            try {
-                                tm.close();
-                            } finally {
-                                restorableSystemProperties.close();
-                                shutdownHangDetection();
-                            }
+                            restorableSystemProperties.close();
+                            shutdownHangDetection();
                         }
                         try {
                             TestClassIndexer.removeIndex(requiredTestClass);
@@ -652,7 +647,7 @@ public class QuarkusTestExtension extends AbstractJvmQuarkusTestExtension
         GroovyClassValue.disable();
         currentTestClassStack.push(requiredTestClass);
         //set the right launch mode in the outer CL, used by the HTTP host config source
-        ProfileManager.setLaunchMode(LaunchMode.TEST);
+        LaunchMode.set(LaunchMode.TEST);
         if (isNativeOrIntegrationTest(requiredTestClass)) {
             return;
         }
@@ -1234,23 +1229,15 @@ public class QuarkusTestExtension extends AbstractJvmQuarkusTestExtension
                 Thread.currentThread().setContextClassLoader(runningQuarkusApplication.getClassLoader());
             }
             try {
+                // this will close the application, the test resources, the class loader...
                 resource.close();
             } catch (Throwable e) {
                 log.error("Failed to shutdown Quarkus", e);
             } finally {
                 runningQuarkusApplication = null;
                 clonePattern = null;
-                try {
-                    if (QuarkusTestExtension.this.originalCl != null) {
-                        setCCL(QuarkusTestExtension.this.originalCl);
-                    }
-                    testResourceManager.close();
-                } catch (Exception e) {
-                    log.error("Failed to shutdown Quarkus test resources", e);
-                } finally {
-                    Thread.currentThread().setContextClassLoader(old);
-                    ConfigProviderResolver.setInstance(null);
-                }
+                Thread.currentThread().setContextClassLoader(old);
+                ConfigProviderResolver.setInstance(null);
             }
         }
     }

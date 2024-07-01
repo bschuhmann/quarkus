@@ -187,12 +187,13 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
     }
 
     @Override
-    public Path getClassesDir() {
-        //TODO: fix all these
-        for (DevModeContext.ModuleInfo i : context.getAllModules()) {
-            return Paths.get(i.getMain().getClassesPath());
+    public List<Path> getClassesDir() {
+        final List<ModuleInfo> allModules = context.getAllModules();
+        final List<Path> paths = new ArrayList<>(allModules.size());
+        for (DevModeContext.ModuleInfo i : allModules) {
+            paths.add(Path.of(i.getMain().getClassesPath()));
         }
-        return null;
+        return paths;
     }
 
     @Override
@@ -398,7 +399,11 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
     @Override
     public void setRemoteProblem(Throwable throwable) {
         compileProblem = throwable;
-        getCompileOutput().setMessage(throwable.getMessage());
+        if (throwable == null) {
+            getCompileOutput().setMessage(null);
+        } else {
+            getCompileOutput().setMessage(throwable.getMessage());
+        }
     }
 
     private StatusLine getCompileOutput() {
@@ -561,9 +566,7 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
                 return true;
             } else if (!filesChanged.isEmpty()) {
                 try {
-                    for (Consumer<Set<String>> consumer : noRestartChangesConsumers) {
-                        consumer.accept(filesChanged);
-                    }
+                    notifyExtensions(filesChanged);
                     hotReloadProblem = null;
                     getCompileOutput().setMessage(null);
                 } catch (Throwable t) {
@@ -585,11 +588,40 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
         }
     }
 
+    /**
+     * This notifies registered extensions of "no-restart" changed files.
+     *
+     * @param noRestartChangedFiles the Set of changed files
+     */
+    public void notifyExtensions(Set<String> noRestartChangedFiles) {
+        if (lastStartIndex == null) {
+            // we don't notify extensions if the application never started
+            return;
+        }
+        scanLock.lock();
+        codeGenLock.lock();
+        try {
+
+            for (Consumer<Set<String>> consumer : noRestartChangesConsumers) {
+                consumer.accept(noRestartChangedFiles);
+            }
+        } finally {
+            scanLock.unlock();
+            codeGenLock.unlock();
+        }
+
+    }
+
     public boolean instrumentationEnabled() {
         if (instrumentationEnabled != null) {
             return instrumentationEnabled;
         }
         return configuredInstrumentationEnabled;
+    }
+
+    public RuntimeUpdatesProcessor setLiveReloadEnabled(boolean liveReloadEnabled) {
+        this.liveReloadEnabled = liveReloadEnabled;
+        return this;
     }
 
     public RuntimeUpdatesProcessor setConfiguredInstrumentationEnabled(boolean configuredInstrumentationEnabled) {
@@ -1177,11 +1209,32 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
                     // Then process glob patterns
                     for (Entry<String, Boolean> e : watchedFilePaths.entrySet()) {
                         String watchedFilePath = e.getKey();
-                        Path path = Paths.get(watchedFilePath);
-                        if (!path.isAbsolute() && !watchedRootPaths.contains(e.getKey()) && maybeGlobPattern(watchedFilePath)) {
-                            Path resolvedPath = root.resolve(watchedFilePath);
-                            for (WatchedPath extra : expandGlobPattern(root, resolvedPath, watchedFilePath, e.getValue())) {
-                                timestamps.watchedPaths.put(extra.filePath, extra);
+                        Path path = Paths.get(sanitizedPattern(watchedFilePath));
+                        if (!path.isAbsolute() && !watchedRootPaths.contains(e.getKey())
+                                && maybeGlobPattern(watchedFilePath)) {
+                            try {
+                                final PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + watchedFilePath);
+                                Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+                                    @Override
+                                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                                        Path relativePath = root.relativize(file);
+                                        if (matcher.matches(relativePath)) {
+                                            log.debugf("Glob pattern [%s] matched %s from %s", watchedFilePath, relativePath,
+                                                    root);
+                                            WatchedPath extra = new WatchedPath(file, relativePath, e.getValue(),
+                                                    attrs.lastModifiedTime().toMillis());
+                                            timestamps.watchedPaths.put(extra.filePath, extra);
+                                        }
+                                        return FileVisitResult.CONTINUE;
+                                    }
+
+                                    @Override
+                                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                                        return FileVisitResult.CONTINUE;
+                                    }
+                                });
+                            } catch (IOException ex) {
+                                throw new UncheckedIOException(ex);
                             }
                         }
                     }
@@ -1192,8 +1245,9 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
         // Finally process watched absolute paths
         for (Entry<String, Boolean> e : watchedFilePaths.entrySet()) {
             String watchedFilePath = e.getKey();
-            Path path = Paths.get(watchedFilePath);
+            Path path = Paths.get(sanitizedPattern(watchedFilePath));
             if (path.isAbsolute()) {
+                path = Paths.get(watchedFilePath);
                 log.debugf("Watch %s", path);
                 if (Files.exists(path)) {
                     putLastModifiedTime(path, path, e.getValue(), timestamps);
@@ -1206,6 +1260,10 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
 
         log.debugf("Watched paths: %s", timestamps.watchedPaths.values());
         return this;
+    }
+
+    private String sanitizedPattern(String pattern) {
+        return pattern.replaceAll("[*?]", "");
     }
 
     private boolean maybeGlobPattern(String path) {
@@ -1253,32 +1311,6 @@ public class RuntimeUpdatesProcessor implements HotReplacementContext, Closeable
         if (testClassChangeTimer != null) {
             testClassChangeTimer.cancel();
         }
-    }
-
-    private List<WatchedPath> expandGlobPattern(Path root, Path path, String pattern, boolean restart) {
-        PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + path.toString());
-        List<WatchedPath> files = new ArrayList<>();
-        try {
-            Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (pathMatcher.matches(file)) {
-                        Path relativePath = root.relativize(file);
-                        log.debugf("Glob pattern [%s] matched %s from %s", pattern, relativePath, root);
-                        files.add(new WatchedPath(file, relativePath, restart, attrs.lastModifiedTime().toMillis()));
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        return files;
     }
 
     public boolean toggleInstrumentation() {

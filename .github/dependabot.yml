@@ -50,6 +50,7 @@ updates:
       # Kafka
       - dependency-name: org.apache.kafka:*
       - dependency-name: io.strimzi:kafka-oauth-client
+      - dependency-name: io.strimzi:strimzi-test-container
       - dependency-name: com.nimbusds:nimbus-jose-jwt
       - dependency-name: io.apicurio:*
       # Scala
@@ -69,7 +70,7 @@ updates:
       - dependency-name: org.hibernate.validator:*
       - dependency-name: org.hibernate.search:*
       # Test dependencies
-      - dependency-name: net.sourceforge.htmlunit:htmlunit
+      - dependency-name: org.htmlunit:htmlunit
       - dependency-name: io.rest-assured:*
       - dependency-name: org.hamcrest:hamcrest
       - dependency-name: org.junit:junit-bom
@@ -176,6 +177,7 @@ updates:
       - dependency-name: com.github.javaparser:javaparser-core
       - dependency-name: com.h2database:h2
       - dependency-name: io.github.crac:org-crac
+      - dependency-name: com.dajudge.kindcontainer:kindcontainer
       - dependency-name: jakarta.*:*
       - dependency-name: org.eclipse.*:*
       - dependency-name: org.glassfish.*:*
@@ -215,6 +217,8 @@ updates:
       # Major/minor upgrades require more work and synchronization, we do them manually.
       # Only use dependabot for micros (patch versions).
       - dependency-name: org.hibernate.*:*
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: org.apache.kafka:*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
     rebase-strategy: disabled
   - package-ecosystem: gradle

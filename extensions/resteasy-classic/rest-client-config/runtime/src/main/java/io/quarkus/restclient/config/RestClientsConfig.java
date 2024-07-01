@@ -12,6 +12,7 @@ import org.eclipse.microprofile.rest.client.ext.QueryParamStyle;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InstanceHandle;
 import io.quarkus.runtime.annotations.ConfigDocDefault;
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigItem;
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
@@ -134,6 +135,7 @@ public class RestClientsConfig {
      * The HTTP headers that should be applied to all requests of the rest client.
      */
     @ConfigItem
+    @ConfigDocMapKey("header-name")
     public Map<String, String> headers;
 
     /**
@@ -275,6 +277,20 @@ public class RestClientsConfig {
      */
     @ConfigItem
     public Optional<String> keyStoreType;
+
+    /**
+     * The name of the TLS configuration to use.
+     * <p>
+     * If not set and the default TLS configuration is configured ({@code quarkus.tls.*}) then that will be used.
+     * If a name is configured, it uses the configuration from {@code quarkus.tls.<name>.*}
+     * If a name is configured, but no TLS configuration is found with that name then an error will be thrown.
+     * <p>
+     * If no TLS configuration is set, then the keys-tore, trust-store, etc. properties will be used.
+     * <p>
+     * This property is not applicable to the RESTEasy Client.
+     */
+    @ConfigItem
+    public Optional<String> tlsConfigurationName;
 
     /**
      * If this is true then HTTP/2 will be enabled.

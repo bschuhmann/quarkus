@@ -117,7 +117,7 @@ include::{generated-dir}/config/quarkus-kubernetes-client-config-group-kubernete
 
 The MongoDB Dev Service will be enabled when the `quarkus-mongodb-client` extension is present in your application, and
 the server address has not been explicitly configured. More information can be found in the
-xref:mongodb.adoc#dev-services[MongoDB Guide].
+xref:mongodb-dev-services.adoc[MongoDB Guide].
 
 include::{generated-dir}/config/quarkus-mongodb-config-group-dev-services-build-time-config.adoc[opts=optional, leveloffset=+1]
 
@@ -164,6 +164,14 @@ is present in your application, and the server address has not been explicitly c
 More information can be found in the xref:elasticsearch-dev-services.adoc[Elasticsearch Dev Services Guide].
 
 include::{generated-dir}/config/quarkus-elasticsearch-devservices-elasticsearch-dev-services-build-time-config.adoc[opts=optional, leveloffset=+1]
+
+=== Observability
+
+The Observability Dev Services will be enabled when the `quarkus-observability-devservices` extension is present in your application, and
+there is at least one dev resource on the classpath. More information can be found in the
+xref:observability-devservices.adoc[Observability Dev Services Guide].
+
+include::{generated-dir}/config/quarkus-observability-config-observability-configuration.adoc[opts=optional, leveloffset=+1]
 
 == Dev Services beyond the Quarkus Platform
 

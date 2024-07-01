@@ -8,17 +8,16 @@ import static org.junit.jupiter.api.Assertions.fail;
 import java.net.URL;
 import java.time.Duration;
 
+import org.htmlunit.FailingHttpStatusCodeException;
+import org.htmlunit.SilentCssErrorHandler;
+import org.htmlunit.WebResponse;
+import org.htmlunit.html.HtmlForm;
+import org.htmlunit.html.HtmlPage;
+import org.htmlunit.util.Cookie;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
-import com.gargoylesoftware.htmlunit.FailingHttpStatusCodeException;
-import com.gargoylesoftware.htmlunit.SilentCssErrorHandler;
-import com.gargoylesoftware.htmlunit.WebResponse;
-import com.gargoylesoftware.htmlunit.html.HtmlForm;
-import com.gargoylesoftware.htmlunit.html.HtmlPage;
-import com.gargoylesoftware.htmlunit.util.Cookie;
-
-import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.test.common.WithTestResource;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.keycloak.client.KeycloakTestClient;
@@ -30,7 +29,7 @@ import io.vertx.ext.web.client.WebClient;
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
  */
 @QuarkusTest
-@QuarkusTestResource(KeycloakLifecycleManager.class)
+@WithTestResource(value = KeycloakLifecycleManager.class, restrictToAnnotatedClass = false)
 public class PolicyEnforcerTest {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
@@ -74,7 +73,7 @@ public class PolicyEnforcerTest {
     }
 
     private void testWebAppTenantAllowed(String user) throws Exception {
-        try (final com.gargoylesoftware.htmlunit.WebClient webClient = createWebClient()) {
+        try (final org.htmlunit.WebClient webClient = createWebClient()) {
             HtmlPage page = webClient.getPage("http://localhost:8081/api-permission-webapp");
 
             assertEquals("Sign in to quarkus", page.getTitleText());
@@ -97,7 +96,7 @@ public class PolicyEnforcerTest {
     }
 
     private void testWebAppTenantForbidden(String user) throws Exception {
-        try (final com.gargoylesoftware.htmlunit.WebClient webClient = createWebClient()) {
+        try (final org.htmlunit.WebClient webClient = createWebClient()) {
             HtmlPage page = webClient.getPage("http://localhost:8081/api-permission-webapp");
 
             assertEquals("Sign in to quarkus", page.getTitleText());
@@ -122,8 +121,8 @@ public class PolicyEnforcerTest {
         }
     }
 
-    private com.gargoylesoftware.htmlunit.WebClient createWebClient() {
-        com.gargoylesoftware.htmlunit.WebClient webClient = new com.gargoylesoftware.htmlunit.WebClient();
+    private org.htmlunit.WebClient createWebClient() {
+        org.htmlunit.WebClient webClient = new org.htmlunit.WebClient();
         webClient.setCssErrorHandler(new SilentCssErrorHandler());
         return webClient;
     }

@@ -55,27 +55,39 @@
         <postgres.url>jdbc:postgresql:hibernate_orm_test</postgres.url>
 
         <gitflow-incremental-builder.version>4.5.3</gitflow-incremental-builder.version>
-        <quarkus-platform-bom-plugin.version>0.0.103</quarkus-platform-bom-plugin.version>
+        <quarkus-platform-bom-plugin.version>0.0.107</quarkus-platform-bom-plugin.version>
 
         <skipDocs>false</skipDocs>
         <skip.gradle.tests>false</skip.gradle.tests>
 
+        <maven-enforcer-plugin.phase>validate</maven-enforcer-plugin.phase>
+        <forbiddenapis-maven-plugin.phase>verify</forbiddenapis-maven-plugin.phase>
+
         <owasp-dependency-check-plugin.version>9.0.7</owasp-dependency-check-plugin.version>
 
         <!-- Dependency versions -->
+        <!-- Properties below are set in this file because they are used
+             in the BOM as well as other POMs (build-parent/pom.xml, docs/pom.xml, ...) -->
         <jacoco.version>0.8.12</jacoco.version>
-        <kubernetes-client.version>6.11.0</kubernetes-client.version> <!-- Please check with Java Operator SDK team before updating -->
+        <kubernetes-client.version>6.13.0</kubernetes-client.version> <!-- Please check with Java Operator SDK team before updating -->
         <rest-assured.version>5.4.0</rest-assured.version>
+        <hibernate-orm.version>6.5.2.Final</hibernate-orm.version> <!-- WARNING when updating, also align the versions below -->
+        <antlr.version>4.13.0</antlr.version> <!-- version controlled by Hibernate ORM's needs -->
+        <bytebuddy.version>1.14.15</bytebuddy.version> <!-- version controlled by Hibernate ORM's needs -->
+        <hibernate-commons-annotations.version>6.0.6.Final</hibernate-commons-annotations.version> <!-- version controlled by Hibernate ORM's needs -->
+        <hibernate-reactive.version>2.3.1.Final</hibernate-reactive.version> <!-- highly sensitive to Hibernate ORM upgrades -->
+        <hibernate-validator.version>8.0.1.Final</hibernate-validator.version>
+        <hibernate-search.version>7.1.1.Final</hibernate-search.version>
 
         <!-- Make sure to check compatibility between these 2 gRPC components before upgrade -->
-        <grpc.version>1.62.2</grpc.version> <!-- when updating, verify if com.google.auth should not be updated too -->
+        <grpc.version>1.64.0</grpc.version> <!-- when updating, verify if com.google.auth should not be updated too -->
         <grpc-jprotoc.version>1.2.1</grpc-jprotoc.version>
         <protoc.version>3.25.0</protoc.version>
         <protobuf-java.version>${protoc.version}</protobuf-java.version>
-        <proto-google-common-protos.version>2.36.0</proto-google-common-protos.version>
+        <proto-google-common-protos.version>2.41.0</proto-google-common-protos.version>
 
         <!-- TestNG version: we don't enforce it in the BOM as it is mostly used in the MP TCKs and we need to use the version from the TCKs -->
-        <testng.version>7.4.0</testng.version>
+        <testng.version>7.8.0</testng.version>
     </properties>
 
     <modules>
@@ -89,6 +101,7 @@
         <module>independent-projects/qute</module>
         <module>independent-projects/tools</module>
         <module>independent-projects/enforcer-rules</module>
+        <module>independent-projects/vertx-utils</module>
         <module>independent-projects/resteasy-reactive</module>
         <module>independent-projects/extension-maven-plugin</module>
         <module>independent-projects/junit5-virtual-threads</module>
@@ -167,7 +180,7 @@
             <extension>
                 <groupId>io.quarkus.bot</groupId>
                 <artifactId>build-reporter-maven-extension</artifactId>
-                <version>3.6.0</version>
+                <version>3.7.0</version>
             </extension>
         </extensions>
     </build>
@@ -186,11 +199,13 @@
                 <skipITs>true</skipITs>
                 <skipDocs>true</skipDocs>
                 <enforcer.skip>true</enforcer.skip>
+                <maven-enforcer-plugin.phase>none</maven-enforcer-plugin.phase>
                 <skipExtensionValidation>true</skipExtensionValidation>
                 <skip.gradle.tests>true</skip.gradle.tests>
                 <invoker.skip>true</invoker.skip>   <!-- maven-invoker-plugin -->
                 <jbang.skip>true</jbang.skip> <!-- jbang-maven-plugin -->
                 <forbiddenapis.skip>true</forbiddenapis.skip> <!-- forbidden-apis maven plugin -->
+                <forbiddenapis-maven-plugin.phase>none</forbiddenapis-maven-plugin.phase>
                 <skipCodestartValidation>true</skipCodestartValidation>
                 <truststore.skip>true</truststore.skip>
             </properties>

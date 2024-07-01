@@ -49,6 +49,7 @@ public enum Feature {
     JDBC_MSSQL,
     JDBC_MYSQL,
     JDBC_ORACLE,
+    JFR,
     KAFKA_CLIENT,
     KAFKA_STREAMS,
     KEYCLOAK_AUTHORIZATION,
@@ -69,6 +70,7 @@ public enum Feature {
     NARAYANA_LRA,
     NARAYANA_STM,
     NEO4J,
+    OBSERVABILITY,
     OIDC,
     OIDC_CLIENT,
     RESTEASY_CLIENT_OIDC_FILTER,
@@ -157,7 +159,7 @@ public enum Feature {
     VAULT,
     VERTX,
     VERTX_GRAPHQL,
-    WEBJARS_LOCATOR;
+    WEB_DEPENDENCY_LOCATOR;
 
     public String getName() {
         return toString().toLowerCase().replace('_', '-');

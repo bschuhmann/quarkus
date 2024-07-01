@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import org.apache.maven.AbstractMavenLifecycleParticipant;
@@ -26,6 +27,7 @@ import org.eclipse.aether.impl.RemoteRepositoryManager;
 import org.eclipse.aether.repository.RemoteRepository;
 
 import io.quarkus.bootstrap.app.CuratedApplication;
+import io.quarkus.bootstrap.app.QuarkusBootstrap;
 import io.quarkus.maven.components.BootstrapSessionListener;
 import io.quarkus.maven.components.ManifestSection;
 import io.quarkus.maven.dependency.ArtifactKey;
@@ -294,6 +296,11 @@ public abstract class QuarkusBootstrapMojo extends AbstractMojo {
         return bootstrapProvider.bootstrapApplication(this, mode);
     }
 
+    protected CuratedApplication bootstrapApplication(LaunchMode mode, Consumer<QuarkusBootstrap.Builder> builderCustomizer)
+            throws MojoExecutionException {
+        return bootstrapProvider.bootstrapApplication(this, mode, builderCustomizer);
+    }
+
     protected Properties getBuildSystemProperties(boolean quarkusOnly) throws MojoExecutionException {
         return bootstrapProvider.bootstrapper(this).getBuildSystemProperties(this, quarkusOnly);
     }
@@ -319,7 +326,7 @@ public abstract class QuarkusBootstrapMojo extends AbstractMojo {
         }
     }
 
-    private boolean isNativeProfileEnabled(MavenProject mavenProject) {
+    static boolean isNativeProfileEnabled(MavenProject mavenProject) {
         // gotcha: mavenProject.getActiveProfiles() does not always contain all active profiles (sic!),
         //         but getInjectedProfileIds() does (which has to be "flattened" first)
         Stream<String> activeProfileIds = mavenProject.getInjectedProfileIds().values().stream().flatMap(List<String>::stream);
@@ -327,6 +334,6 @@ public abstract class QuarkusBootstrapMojo extends AbstractMojo {
             return true;
         }
         // recurse into parent (if available)
-        return Optional.ofNullable(mavenProject.getParent()).map(this::isNativeProfileEnabled).orElse(false);
+        return Optional.ofNullable(mavenProject.getParent()).map(QuarkusBootstrapMojo::isNativeProfileEnabled).orElse(false);
     }
 }

@@ -166,6 +166,7 @@ public class OidcIdentityProvider implements IdentityProvider<TokenAuthenticatio
                     @Override
                     public Uni<SecurityIdentity> apply(TokenVerificationResult codeAccessToken, Throwable t) {
                         if (t != null) {
+                            requestData.put(OidcUtils.CODE_ACCESS_TOKEN_FAILURE, t);
                             return Uni.createFrom().failure(new AuthenticationFailedException(t));
                         }
 
@@ -217,6 +218,7 @@ public class OidcIdentityProvider implements IdentityProvider<TokenAuthenticatio
                                     public Uni<SecurityIdentity> apply(TokenVerificationResult codeAccessTokenResult,
                                             Throwable t) {
                                         if (t != null) {
+                                            requestData.put(OidcUtils.CODE_ACCESS_TOKEN_FAILURE, t);
                                             return Uni.createFrom().failure(t instanceof AuthenticationFailedException ? t
                                                     : new AuthenticationFailedException(t));
                                         }
@@ -429,7 +431,7 @@ public class OidcIdentityProvider implements IdentityProvider<TokenAuthenticatio
     private Uni<TokenVerificationResult> verifyCodeFlowAccessTokenUni(Map<String, Object> requestData,
             TokenAuthenticationRequest request,
             TenantConfigContext resolvedContext, UserInfo userInfo) {
-        if (request.getToken() instanceof IdTokenCredential
+        if (isIdToken(request)
                 && (resolvedContext.oidcConfig.authentication.verifyAccessToken
                         || resolvedContext.oidcConfig.roles.source.orElse(null) == Source.accesstoken)) {
             final String codeAccessToken = (String) requestData.get(OidcConstants.ACCESS_TOKEN_VALUE);
@@ -467,7 +469,7 @@ public class OidcIdentityProvider implements IdentityProvider<TokenAuthenticatio
             return introspectTokenUni(resolvedContext, token, false);
         } else if (resolvedContext.oidcConfig.jwks.resolveEarly) {
             // Verify JWT token with the local JWK keys with a possible remote introspection fallback
-            final String nonce = (String) requestData.get(OidcConstants.NONCE);
+            final String nonce = tokenCred instanceof IdTokenCredential ? (String) requestData.get(OidcConstants.NONCE) : null;
             try {
                 LOG.debug("Verifying the JWT token with the local JWK keys");
                 return Uni.createFrom()
@@ -492,7 +494,8 @@ public class OidcIdentityProvider implements IdentityProvider<TokenAuthenticatio
 
     private Uni<TokenVerificationResult> verifySelfSignedTokenUni(TenantConfigContext resolvedContext, String token) {
         try {
-            return Uni.createFrom().item(resolvedContext.provider.verifySelfSignedJwtToken(token));
+            return Uni.createFrom().item(
+                    resolvedContext.provider.verifySelfSignedJwtToken(token, resolvedContext.getInternalIdTokenSecretKey()));
         } catch (Throwable t) {
             return Uni.createFrom().failure(t);
         }

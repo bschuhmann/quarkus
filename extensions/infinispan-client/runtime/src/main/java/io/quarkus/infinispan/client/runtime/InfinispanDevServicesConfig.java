@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 
@@ -112,18 +113,21 @@ public class InfinispanDevServicesConfig {
      * Runs the Infinispan Server container with tracing enabled. Traces are disabled by default
      */
     @ConfigItem(name = "tracing.enabled", defaultValue = "false")
+    @Deprecated(forRemoval = true)
     public Optional<Boolean> tracing;
 
     /**
      * Sets Infinispan Server otlp endpoint. Default value is http://localhost:4317
      */
     @ConfigItem(name = "tracing.exporter.otlp.endpoint", defaultValue = "http://localhost:4317")
+    @Deprecated(forRemoval = true)
     public Optional<String> exporterOtlpEndpoint;
 
     /**
      * Environment variables that are passed to the container.
      */
     @ConfigItem
+    @ConfigDocMapKey("environment-variable-name")
     public Map<String, String> containerEnv;
 
     /**

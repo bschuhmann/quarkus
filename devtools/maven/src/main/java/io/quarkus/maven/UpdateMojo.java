@@ -1,7 +1,5 @@
 package io.quarkus.maven;
 
-import static org.twdata.maven.mojoexecutor.MojoExecutor.*;
-
 import java.util.List;
 
 import org.apache.maven.execution.MavenSession;
@@ -34,11 +32,6 @@ public class UpdateMojo extends QuarkusProjectStateMojoBase {
      */
     @Parameter(property = "perModule")
     boolean perModule;
-
-    /**
-     * If true, instead of checking and recommending the latest available Quarkus platform version,
-     * recommendations to properly align the current project configuration will be logged (if any)
-     */
 
     /**
      * Version of the target platform (e.g: 2.0.0.Final)
@@ -130,7 +123,7 @@ public class UpdateMojo extends QuarkusProjectStateMojoBase {
             final QuarkusCommandOutcome result = invoker.execute();
             if (!result.isSuccess()) {
                 throw new MojoExecutionException(
-                        "Failed to apply the updates.");
+                        "Failed to apply the updates: " + result.getMessage());
             }
         } catch (QuarkusUpdateExitErrorException e) {
             throw new MojoExecutionException(e.getMessage());

@@ -45,6 +45,10 @@ public class HttpConfiguration {
      * Defaulting to 0.0.0.0 makes it easier to deploy Quarkus to container, however it
      * is not suitable for dev/test mode as other people on the network can connect to your
      * development machine.
+     * <p>
+     * As an exception, when running in Windows Subsystem for Linux (WSL), the HTTP host
+     * defaults to 0.0.0.0 even in dev/test mode since using localhost makes the application
+     * inaccessible.
      */
     @ConfigItem
     public String host;
@@ -121,6 +125,18 @@ public class HttpConfiguration {
      * The SSL config
      */
     public ServerSslConfig ssl;
+
+    /**
+     * The name of the TLS configuration to use.
+     * <p>
+     * If not set and the default TLS configuration is configured ({@code quarkus.tls.*}) then that will be used.
+     * If a name is configured, it uses the configuration from {@code quarkus.tls.<name>.*}
+     * If a name is configured, but no TLS configuration is found with that name then an error will be thrown.
+     * <p>
+     * If no TLS configuration is set, and {@code quarkus.tls.*} is not configured, then, `quarkus.http.ssl` will be used.
+     */
+    @ConfigItem
+    public Optional<String> tlsConfigurationName;
 
     /**
      * The Static Resources config

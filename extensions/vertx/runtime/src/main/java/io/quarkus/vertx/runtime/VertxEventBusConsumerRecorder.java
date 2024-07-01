@@ -9,7 +9,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -28,7 +27,6 @@ import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.ShutdownContext;
 import io.quarkus.runtime.annotations.Recorder;
-import io.quarkus.runtime.configuration.ProfileManager;
 import io.quarkus.vertx.ConsumeEvent;
 import io.quarkus.vertx.LocalEventBusCodec;
 import io.quarkus.virtual.threads.VirtualThreadsRecorder;
@@ -55,7 +53,8 @@ public class VertxEventBusConsumerRecorder {
     static volatile Vertx vertx;
     static volatile List<MessageConsumer<?>> messageConsumers;
 
-    public void configureVertx(Supplier<Vertx> vertx, Map<String, ConsumeEvent> messageConsumerConfigurations,
+    public void configureVertx(Supplier<Vertx> vertx,
+            List<EventConsumerInfo> messageConsumerConfigurations,
             LaunchMode launchMode, ShutdownContext shutdown, Map<Class<?>, Class<?>> codecByClass,
             List<Class<?>> selectorTypes) {
         VertxEventBusConsumerRecorder.vertx = vertx.get();
@@ -94,15 +93,19 @@ public class VertxEventBusConsumerRecorder {
         vertx = null;
     }
 
-    void registerMessageConsumers(Map<String, ConsumeEvent> messageConsumerConfigurations) {
+    void registerMessageConsumers(List<EventConsumerInfo> messageConsumerConfigurations) {
         if (!messageConsumerConfigurations.isEmpty()) {
             EventBus eventBus = vertx.eventBus();
             VertxInternal vi = (VertxInternal) VertxEventBusConsumerRecorder.vertx;
             CountDownLatch latch = new CountDownLatch(messageConsumerConfigurations.size());
             final List<Throwable> registrationFailures = new ArrayList<>();
-            for (Entry<String, ConsumeEvent> entry : messageConsumerConfigurations.entrySet()) {
-                EventConsumerInvoker invoker = createInvoker(entry.getKey());
-                String address = lookUpPropertyValue(entry.getValue().value());
+            for (EventConsumerInfo info : messageConsumerConfigurations) {
+                EventConsumerInvoker invoker = new EventConsumerInvoker(info.invoker.getValue(), info.splitHeadersBodyParams);
+                String address = lookUpPropertyValue(info.annotation.value());
+                boolean local = info.annotation.local();
+                boolean blocking = info.annotation.blocking() || info.blockingAnnotation || info.runOnVirtualThreadAnnotation;
+                boolean runOnVirtualThread = info.runOnVirtualThreadAnnotation;
+                boolean ordered = info.annotation.ordered();
                 // Create a context attached to each consumer
                 // If we don't all consumers will use the same event loop and so published messages (dispatched to all
                 // consumers) delivery is serialized.
@@ -111,7 +114,7 @@ public class VertxEventBusConsumerRecorder {
                     @Override
                     public void handle(Void x) {
                         MessageConsumer<Object> consumer;
-                        if (entry.getValue().local()) {
+                        if (local) {
                             consumer = eventBus.localConsumer(address);
                         } else {
                             consumer = eventBus.consumer(address);
@@ -120,12 +123,12 @@ public class VertxEventBusConsumerRecorder {
                         consumer.handler(new Handler<Message<Object>>() {
                             @Override
                             public void handle(Message<Object> m) {
-                                if (invoker.isBlocking()) {
+                                if (blocking) {
                                     // We need to create a duplicated context from the "context"
                                     Context dup = VertxContext.getOrCreateDuplicatedContext(context);
                                     setContextSafe(dup, true);
 
-                                    if (invoker.isRunningOnVirtualThread()) {
+                                    if (runOnVirtualThread) {
                                         // Switch to a Vert.x context to capture it and use it during the invocation.
                                         dup.runOnContext(new Handler<Void>() {
                                             @Override
@@ -163,7 +166,7 @@ public class VertxEventBusConsumerRecorder {
                                                 }
                                                 return null;
                                             }
-                                        }, invoker.isOrdered());
+                                        }, ordered);
                                         future.onFailure(context::reportException);
                                     }
                                 } else {
@@ -242,25 +245,9 @@ public class VertxEventBusConsumerRecorder {
     }
 
     @SuppressWarnings("unchecked")
-    private EventConsumerInvoker createInvoker(String invokerClassName) {
-        try {
-            ClassLoader cl = Thread.currentThread().getContextClassLoader();
-            if (cl == null) {
-                cl = VertxProducer.class.getClassLoader();
-            }
-            Class<? extends EventConsumerInvoker> invokerClazz = (Class<? extends EventConsumerInvoker>) cl
-                    .loadClass(invokerClassName);
-            return invokerClazz.getDeclaredConstructor().newInstance();
-        } catch (InstantiationException | IllegalAccessException | ClassNotFoundException | NoSuchMethodException
-                | InvocationTargetException e) {
-            throw new IllegalStateException("Unable to create invoker: " + invokerClassName, e);
-        }
-    }
-
-    @SuppressWarnings("unchecked")
     private void registerCodecs(Map<Class<?>, Class<?>> codecByClass, List<Class<?>> selectorTypes) {
         EventBus eventBus = vertx.eventBus();
-        boolean isDevMode = ProfileManager.getLaunchMode() == LaunchMode.DEVELOPMENT;
+        boolean isDevMode = LaunchMode.current() == LaunchMode.DEVELOPMENT;
         for (Map.Entry<Class<?>, Class<?>> codecEntry : codecByClass.entrySet()) {
             Class<?> target = codecEntry.getKey();
             Class<?> codec = codecEntry.getValue();

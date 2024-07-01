@@ -54,8 +54,8 @@ import org.hibernate.id.factory.IdentifierGeneratorFactory;
 import org.hibernate.integrator.spi.Integrator;
 import org.hibernate.internal.EntityManagerMessageLogger;
 import org.hibernate.internal.util.StringHelper;
-import org.hibernate.jpa.boot.internal.EntityManagerFactoryBuilderImpl;
 import org.hibernate.jpa.boot.internal.StandardJpaScanEnvironmentImpl;
+import org.hibernate.jpa.boot.spi.JpaSettings;
 import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
 import org.hibernate.jpa.boot.spi.TypeContributorList;
 import org.hibernate.jpa.internal.util.LogHelper;
@@ -120,7 +120,7 @@ public class FastBootMetadataBuilder {
     @SuppressWarnings("unchecked")
     public FastBootMetadataBuilder(final QuarkusPersistenceUnitDefinition puDefinition, Scanner scanner,
             Collection<Class<? extends Integrator>> additionalIntegrators, PreGeneratedProxies preGeneratedProxies) {
-        this.persistenceUnit = puDefinition.getActualHibernateDescriptor();
+        this.persistenceUnit = puDefinition.getPersistenceUnitDescriptor();
         this.isReactive = puDefinition.isReactive();
         this.fromPersistenceXml = puDefinition.isFromPersistenceXml();
         this.additionalIntegrators = additionalIntegrators;
@@ -239,7 +239,7 @@ public class FastBootMetadataBuilder {
      */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private MergedSettings mergeSettings(QuarkusPersistenceUnitDefinition puDefinition) {
-        PersistenceUnitDescriptor persistenceUnit = puDefinition.getActualHibernateDescriptor();
+        PersistenceUnitDescriptor persistenceUnit = puDefinition.getPersistenceUnitDescriptor();
         final MergedSettings mergedSettings = new MergedSettings();
         final Map cfg = mergedSettings.configurationValues;
 
@@ -274,7 +274,7 @@ public class FastBootMetadataBuilder {
 
         // Quarkus specific
 
-        cfg.put("hibernate.temp.use_jdbc_metadata_defaults", "false");
+        cfg.put("hibernate.boot.allow_jdbc_metadata_access", "false");
 
         //This shouldn't be encouraged, but sometimes it's really useful - and it used to be the default
         //in Hibernate ORM before the JPA spec would require to change this.
@@ -660,7 +660,7 @@ public class FastBootMetadataBuilder {
         }
 
         final TypeContributorList typeContributorList = (TypeContributorList) buildTimeSettings
-                .get(EntityManagerFactoryBuilderImpl.TYPE_CONTRIBUTORS);
+                .get(JpaSettings.TYPE_CONTRIBUTORS);
         if (typeContributorList != null) {
             typeContributorList.getTypeContributors().forEach(metamodelBuilder::applyTypes);
         }
@@ -668,14 +668,14 @@ public class FastBootMetadataBuilder {
 
     private void applyMetadataBuilderContributor() {
         Object metadataBuilderContributorSetting = buildTimeSettings
-                .get(EntityManagerFactoryBuilderImpl.METADATA_BUILDER_CONTRIBUTOR);
+                .get(JpaSettings.METADATA_BUILDER_CONTRIBUTOR);
 
         if (metadataBuilderContributorSetting == null) {
             return;
         }
 
         MetadataBuilderContributor metadataBuilderContributor = loadSettingInstance(
-                EntityManagerFactoryBuilderImpl.METADATA_BUILDER_CONTRIBUTOR,
+                JpaSettings.METADATA_BUILDER_CONTRIBUTOR,
                 metadataBuilderContributorSetting,
                 MetadataBuilderContributor.class);
 

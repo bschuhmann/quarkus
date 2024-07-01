@@ -36,6 +36,7 @@ import io.quarkus.bootstrap.runner.Timing;
 import io.quarkus.builder.BuildChainBuilder;
 import io.quarkus.builder.BuildContext;
 import io.quarkus.builder.BuildStep;
+import io.quarkus.commons.classloading.ClassloadHelper;
 import io.quarkus.deployment.builditem.ApplicationClassPredicateBuildItem;
 import io.quarkus.deployment.console.ConsoleCommand;
 import io.quarkus.deployment.console.ConsoleStateManager;
@@ -82,7 +83,7 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
                 //this is a bit yuck, but we need replace the default
                 //exit handler in the runtime class loader
                 //TODO: look at implementing a common core classloader, that removes the need for this sort of crappy hack
-                curatedApplication.getBaseRuntimeClassLoader().loadClass(ApplicationLifecycleManager.class.getName())
+                curatedApplication.getOrCreateBaseRuntimeClassLoader().loadClass(ApplicationLifecycleManager.class.getName())
                         .getMethod("setDefaultExitCodeHandler", Consumer.class)
                         .invoke(null, new Consumer<Integer>() {
                             @Override
@@ -112,8 +113,11 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
                 StartupAction start = augmentAction.createInitialRuntimeApplication();
 
                 runner = start.runMainClass(context.getArgs());
-                RuntimeUpdatesProcessor.INSTANCE.setConfiguredInstrumentationEnabled(
-                        runner.getConfigValue("quarkus.live-reload.instrumentation", Boolean.class).orElse(false));
+                RuntimeUpdatesProcessor.INSTANCE
+                        .setConfiguredInstrumentationEnabled(
+                                runner.getConfigValue("quarkus.live-reload.instrumentation", Boolean.class).orElse(false))
+                        .setLiveReloadEnabled(
+                                runner.getConfigValue("quarkus.live-reload.enabled", Boolean.class).orElse(false));
                 firstStartCompleted = true;
                 notifyListenersAfterStart();
 
@@ -135,7 +139,8 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
                         ApplicationStateNotification.notifyStartupFailed(t);
 
                         if (RuntimeUpdatesProcessor.INSTANCE != null) {
-                            Thread.currentThread().setContextClassLoader(curatedApplication.getBaseRuntimeClassLoader());
+                            Thread.currentThread()
+                                    .setContextClassLoader(curatedApplication.getOrCreateBaseRuntimeClassLoader());
                             try {
                                 if (!InitialConfigurator.DELAYED_HANDLER.isActivated()) {
                                     Class<?> cl = Thread.currentThread().getContextClassLoader()
@@ -180,7 +185,7 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
             consoleContext.reset();
         }
         stop();
-        Timing.restart(curatedApplication.getAugmentClassLoader());
+        Timing.restart(curatedApplication.getOrCreateAugmentClassLoader());
         deploymentProblem = null;
         ClassLoader old = Thread.currentThread().getContextClassLoader();
         try {
@@ -202,7 +207,7 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
                 }
                 if (!(rootCause instanceof BindException)) {
                     log.error("Failed to start quarkus", t);
-                    Thread.currentThread().setContextClassLoader(curatedApplication.getAugmentClassLoader());
+                    Thread.currentThread().setContextClassLoader(curatedApplication.getOrCreateAugmentClassLoader());
                     LoggingSetupRecorder.handleFailedStart();
                 }
             }
@@ -251,19 +256,19 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
                     }, testSupport);
 
             for (HotReplacementSetup service : ServiceLoader.load(HotReplacementSetup.class,
-                    curatedApplication.getBaseRuntimeClassLoader())) {
+                    curatedApplication.getOrCreateBaseRuntimeClassLoader())) {
                 hotReplacementSetups.add(service);
                 service.setupHotDeployment(processor);
                 processor.addHotReplacementSetup(service);
             }
             for (DeploymentFailedStartHandler service : ServiceLoader.load(DeploymentFailedStartHandler.class,
-                    curatedApplication.getAugmentClassLoader())) {
+                    curatedApplication.getOrCreateAugmentClassLoader())) {
                 processor.addDeploymentFailedStartHandler(new Runnable() {
                     @Override
                     public void run() {
                         ClassLoader old = Thread.currentThread().getContextClassLoader();
                         try {
-                            Thread.currentThread().setContextClassLoader(curatedApplication.getAugmentClassLoader());
+                            Thread.currentThread().setContextClassLoader(curatedApplication.getOrCreateAugmentClassLoader());
                             service.handleFailedInitialStart();
                         } finally {
                             Thread.currentThread().setContextClassLoader(old);
@@ -361,7 +366,7 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
         //setup the dev mode thread pool for NIO
         System.setProperty("java.nio.channels.DefaultThreadPool.threadFactory",
                 "io.quarkus.dev.io.NioThreadPoolThreadFactory");
-        Timing.staticInitStarted(o.getBaseRuntimeClassLoader(), false);
+        Timing.staticInitStarted(o.getOrCreateBaseRuntimeClassLoader(), false);
         //https://github.com/quarkusio/quarkus/issues/9748
         //if you have an app with all daemon threads then the app thread
         //may be the only thread keeping the JVM alive
@@ -408,9 +413,10 @@ public class IsolatedDevModeMain implements BiConsumer<CuratedApplication, Map<S
                                         public boolean test(String s) {
                                             QuarkusClassLoader cl = (QuarkusClassLoader) Thread.currentThread()
                                                     .getContextClassLoader();
+                                            String resourceName = ClassloadHelper.fromClassNameToResourceName(s);
                                             //if the class file is present in this (and not the parent) CL then it is an application class
                                             List<ClassPathElement> res = cl
-                                                    .getElementsWithResource(s.replace('.', '/') + ".class", true);
+                                                    .getElementsWithResource(resourceName, true);
                                             return !res.isEmpty();
                                         }
                                     }));

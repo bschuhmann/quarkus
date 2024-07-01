@@ -12,7 +12,6 @@ import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -923,8 +922,8 @@ public class SmallRyeOpenApiProcessor {
 
     private void produceReflectiveHierarchy(BuildProducer<ReflectiveHierarchyBuildItem> reflectiveHierarchy, Type type,
             String source) {
-        reflectiveHierarchy.produce(new ReflectiveHierarchyBuildItem.Builder()
-                .type(type)
+        reflectiveHierarchy.produce(ReflectiveHierarchyBuildItem
+                .builder(type)
                 .ignoreTypePredicate(ResteasyDotNames.IGNORE_TYPE_FOR_REFLECTION_PREDICATE)
                 .ignoreFieldPredicate(ResteasyDotNames.IGNORE_FIELD_FOR_REFLECTION_PREDICATE)
                 .ignoreMethodPredicate(ResteasyDotNames.IGNORE_METHOD_FOR_REFLECTION_PREDICATE)
@@ -939,14 +938,19 @@ public class SmallRyeOpenApiProcessor {
         Path outputDirectory = out.getOutputDirectory();
 
         if (!directory.isAbsolute() && outputDirectory != null) {
-            directory = Paths.get(outputDirectory.getParent().toString(), directory.toString());
+            var baseDir = outputDirectory.getParent();
+            // check if outputDirectory is the root of the filesystem
+            if (baseDir == null) {
+                baseDir = outputDirectory;
+            }
+            directory = baseDir.resolve(directory);
         }
 
         if (!Files.exists(directory)) {
             Files.createDirectories(directory);
         }
 
-        Path file = Paths.get(directory.toString(), "openapi." + format.toString().toLowerCase());
+        Path file = directory.resolve("openapi." + format.toString().toLowerCase());
         if (!Files.exists(file)) {
             Files.createFile(file);
         }

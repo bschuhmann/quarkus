@@ -141,6 +141,11 @@ public class DevUIProcessor {
             return;
         }
 
+        routeProducer.produce(nonApplicationRootPathBuildItem.routeBuilder()
+                .orderedRoute(DEVUI + SLASH_ALL, -2 * FilterBuildItem.CORS)
+                .handler(recorder.createLocalHostOnlyFilter(devUIConfig.hosts.orElse(null)))
+                .build());
+
         if (devUIConfig.cors.enabled) {
             routeProducer.produce(nonApplicationRootPathBuildItem.routeBuilder()
                     .orderedRoute(DEVUI + SLASH_ALL, -1 * FilterBuildItem.CORS)
@@ -499,7 +504,7 @@ public class DevUIProcessor {
                             if (codestartMap != null) {
                                 Codestart codestart = new Codestart();
                                 codestart.setName((String) codestartMap.getOrDefault(NAME, null));
-                                codestart.setLanguages((List<String>) codestartMap.getOrDefault(LANGUAGES, null));
+                                codestart.setLanguages(listOrString(codestartMap, LANGUAGES));
                                 codestart.setArtifact((String) codestartMap.getOrDefault(ARTIFACT, null));
                                 extension.setCodestart(codestart);
                             }
@@ -592,6 +597,18 @@ public class DevUIProcessor {
                     .collect(Collectors.joining(", "));
         }
         return String.valueOf(value);
+    }
+
+    private List<String> listOrString(Map<String, Object> metaData, String key) {
+        Object value = metaData.getOrDefault(key, null);
+        if (value == null) {
+            return null;
+        } else if (String.class.isAssignableFrom(value.getClass())) {
+            return List.of((String) value);
+        } else if (List.class.isAssignableFrom(value.getClass())) {
+            return (List) value;
+        }
+        return List.of(String.valueOf(value));
     }
 
     private void produceResources(String artifactId,

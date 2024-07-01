@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.annotations.ConfigItem;
 
@@ -342,6 +343,7 @@ public class OidcCommonConfig {
              * Additional claims.
              */
             @ConfigItem
+            @ConfigDocMapKey("claim-name")
             public Map<String, String> claims = new HashMap<>();
 
             /**
@@ -358,6 +360,15 @@ public class OidcCommonConfig {
              */
             @ConfigItem(defaultValue = "10")
             public int lifespan = 10;
+
+            /**
+             * If true then the client authentication token is a JWT bearer grant assertion. Instead of producing
+             * 'client_assertion'
+             * and 'client_assertion_type' form properties, only 'assertion' is produced.
+             * This option is only supported by the OIDC client extension.
+             */
+            @ConfigItem(defaultValue = "false")
+            public boolean assertion = false;
 
             public Optional<String> getSecret() {
                 return secret;
@@ -439,6 +450,14 @@ public class OidcCommonConfig {
                 this.source = source;
             }
 
+            public boolean isAssertion() {
+                return assertion;
+            }
+
+            public void setAssertion(boolean assertion) {
+                this.assertion = assertion;
+            }
+
         }
 
         /**
@@ -448,11 +467,21 @@ public class OidcCommonConfig {
         public static class Provider {
 
             /**
-             * The CredentialsProvider name, which should only be set if more than one CredentialsProvider is
+             * The CredentialsProvider bean name, which should only be set if more than one CredentialsProvider is
              * registered
              */
             @ConfigItem
             public Optional<String> name = Optional.empty();
+
+            /**
+             * The CredentialsProvider keyring name.
+             * The keyring name is only required when the CredentialsProvider being
+             * used requires the keyring name to look up the secret, which is often the case when a CredentialsProvider is
+             * shared by multiple extensions to retrieve credentials from a more dynamic source like a vault instance or secret
+             * manager
+             */
+            @ConfigItem
+            public Optional<String> keyringName = Optional.empty();
 
             /**
              * The CredentialsProvider client secret key
@@ -466,6 +495,14 @@ public class OidcCommonConfig {
 
             public void setName(String name) {
                 this.name = Optional.of(name);
+            }
+
+            public Optional<String> getKeyringName() {
+                return keyringName;
+            }
+
+            public void setKeyringName(String keyringName) {
+                this.keyringName = Optional.of(keyringName);
             }
 
             public Optional<String> getKey() {

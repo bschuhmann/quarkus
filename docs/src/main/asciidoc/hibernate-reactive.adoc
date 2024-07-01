@@ -191,7 +191,7 @@ and will have it use the default datasource.
 The configuration properties listed here allow you to override such defaults, and customize and tune various aspects.
 
 Hibernate Reactive uses the same properties you would use for Hibernate ORM. You will notice that some properties
-contain `jdbc` in the name but there is not JDBC in Hibernate Reactive, these are simply legacy property names.
+contain `jdbc` in the name but there is no JDBC in Hibernate Reactive, these are simply legacy property names.
 
 include::{generated-dir}/config/quarkus-hibernate-orm.adoc[opts=optional, leveloffset=+2]
 
@@ -223,6 +223,22 @@ Mutiny.SessionFactory sessionFactory;
 This will inject the `Mutiny.SessionFactory` of the default persistence unit.
 
 NOTE: Prior to Quarkus 3.0 it was also possible to inject a `@RequestScoped` bean for `Mutiny.Session`. However, the lifecycle of a reactive session does not fit the lifecycle of the CDI request context. Therefore, this bean is removed in Quarkus 3.0.
+
+[[flyway]]
+== Automatically transitioning to Flyway to Manage Schemas
+
+Hibernate Reactive can be used in the same application as Flyway.
+See xref:flyway.adoc#reactive-datasources[this section of the Flyway extension documentation]
+for details regarding configuration of Flyway in a reactive application.
+
+[TIP]
+====
+If you have the xref:flyway.adoc[Flyway extension] installed when running in development mode,
+Quarkus provides a simple way to initialize your Flyway configuration
+using the schema generated automatically by Hibernate Reactive.
+
+See xref:hibernate-orm.adoc#flyway[the Hibernate ORM guide] for more details.
+====
 
 [[testing]]
 === Testing

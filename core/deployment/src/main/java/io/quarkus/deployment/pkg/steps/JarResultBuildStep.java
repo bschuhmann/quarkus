@@ -1,5 +1,6 @@
 package io.quarkus.deployment.pkg.steps;
 
+import static io.quarkus.commons.classloading.ClassloadHelper.fromClassNameToResourceName;
 import static io.quarkus.deployment.pkg.PackageConfig.JarConfig.JarType.*;
 
 import java.io.BufferedInputStream;
@@ -153,7 +154,7 @@ public class JarResultBuildStep {
     public static final String DEFAULT_FAST_JAR_DIRECTORY_NAME = "quarkus-app";
 
     public static final String MP_CONFIG_FILE = "META-INF/microprofile-config.properties";
-    private static final String VINEFLOWER_VERSION = "1.9.3";
+    private static final String VINEFLOWER_VERSION = "1.10.1";
 
     @BuildStep
     OutputTargetBuildItem outputTarget(BuildSystemTargetBuildItem bst, PackageConfig packageConfig) {
@@ -649,7 +650,7 @@ public class JarResultBuildStep {
         fastJarJarsBuilder.setGenerated(generatedZip);
         try (FileSystem out = createNewZip(generatedZip, packageConfig)) {
             for (GeneratedClassBuildItem i : generatedClasses) {
-                String fileName = i.getName().replace('.', '/') + ".class";
+                String fileName = fromClassNameToResourceName(i.getName());
                 Path target = out.getPath(fileName);
                 if (target.getParent() != null) {
                     Files.createDirectories(target.getParent());
@@ -1181,7 +1182,7 @@ public class JarResultBuildStep {
             }
         }
         for (GeneratedClassBuildItem i : generatedClasses) {
-            String fileName = i.getName().replace('.', '/') + ".class";
+            String fileName = fromClassNameToResourceName(i.getName());
             seen.put(fileName, "Current Application");
             Path target = runnerZipFs.getPath(fileName);
             handleParent(runnerZipFs, fileName, seen);

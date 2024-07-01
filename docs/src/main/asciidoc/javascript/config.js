@@ -13,7 +13,7 @@ if(tables){
             var input = caption.firstElementChild.lastElementChild;
             input.addEventListener("keyup", initiateSearch);
             input.addEventListener("input", initiateSearch);
-            input.attributes.removeNamedItem('disabled');
+            if (input.attributes.disabled) input.attributes.removeNamedItem('disabled');
             inputs[input.id] = {"table": table};
         }
 
@@ -24,7 +24,7 @@ if(tables){
                 const decoration = td.firstElementChild.lastElementChild.firstElementChild;
                 const iconDecoration = decoration.children.item(0);
                 const collapsibleSpan = decoration.children.item(1);
-                const descDiv = td.firstElementChild.children.item(1);
+                const descDiv = td.firstElementChild.querySelector(".description");
                 const collapsibleHandler = makeCollapsibleHandler(descDiv, td, row, collapsibleSpan, iconDecoration);
                 row.addEventListener('click', collapsibleHandler);
             }

@@ -27,7 +27,8 @@ We'll do that using a single Quarkus annotation.
 [NOTE]
 ====
 In this guide, we use the default Quarkus Cache backend (Caffeine).
-You can use Redis instead.
+You can use Infinispan or Redis instead.
+Refer to the xref:cache-infinispan-reference.adoc[Infinispan cache backend reference] to configure the Infinispan backend.
 Refer to the xref:cache-redis-reference.adoc[Redis cache backend reference] to configure the Redis backend.
 ====
 
@@ -1075,3 +1076,4 @@ When you encounter this error, you can easily fix it by adding the following ann
 <1> It is an array, so you can register several cache implementations in one go if your configuration requires several of them.
 
 This annotation will register the cache implementation classes for reflection and this will include the classes into the native executable.
+More details about the `@RegisterForReflection` annotation can be found on  the xref:writing-native-applications-tips.adoc#registerForReflection[native application tips] page.

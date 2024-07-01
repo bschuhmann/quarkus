@@ -1,5 +1,6 @@
 package io.quarkus.test.junit;
 
+import static io.quarkus.commons.classloading.ClassloadHelper.fromClassNameToResourceName;
 import static io.quarkus.test.common.PathTestHelper.getAppClassLocationForTestLocation;
 import static io.quarkus.test.common.PathTestHelper.getTestClassesLocation;
 
@@ -36,11 +37,12 @@ import io.quarkus.bootstrap.workspace.SourceDir;
 import io.quarkus.bootstrap.workspace.WorkspaceModule;
 import io.quarkus.deployment.dev.testing.CurrentTestApplication;
 import io.quarkus.paths.PathList;
-import io.quarkus.runtime.configuration.ProfileManager;
+import io.quarkus.runtime.LaunchMode;
 import io.quarkus.test.common.PathTestHelper;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.RestorableSystemProperties;
 import io.quarkus.test.common.TestClassIndexer;
+import io.quarkus.test.common.WithTestResource;
 
 public class AbstractJvmQuarkusTestExtension extends AbstractQuarkusTestWithContextExtension {
 
@@ -77,7 +79,7 @@ public class AbstractJvmQuarkusTestExtension extends AbstractQuarkusTestWithCont
         // If gradle project running directly with IDE
         if (gradleAppModel != null && gradleAppModel.getApplicationModule() != null) {
             final WorkspaceModule module = gradleAppModel.getApplicationModule();
-            final String testClassFileName = requiredTestClass.getName().replace('.', '/') + ".class";
+            final String testClassFileName = fromClassNameToResourceName(requiredTestClass.getName());
             Path testClassesDir = null;
             for (String classifier : module.getSourceClassifiers()) {
                 final ArtifactSources sources = module.getSources(classifier);
@@ -165,7 +167,7 @@ public class AbstractJvmQuarkusTestExtension extends AbstractQuarkusTestWithCont
                 additional.put("quarkus.arc.test.disable-application-lifecycle-observers", "true");
             }
             if (profileInstance.getConfigProfile() != null) {
-                additional.put(ProfileManager.QUARKUS_TEST_PROFILE_PROP, profileInstance.getConfigProfile());
+                additional.put(LaunchMode.TEST.getProfileKey(), profileInstance.getConfigProfile());
             }
             //we just use system properties for now
             //it's a lot simpler
@@ -199,7 +201,7 @@ public class AbstractJvmQuarkusTestExtension extends AbstractQuarkusTestWithCont
         // we need to write the Index to make it reusable from other parts of the testing infrastructure that run in different ClassLoaders
         TestClassIndexer.writeIndex(testClassesIndex, testClassLocation, requiredTestClass);
 
-        Timing.staticInitStarted(curatedApplication.getBaseRuntimeClassLoader(),
+        Timing.staticInitStarted(curatedApplication.getOrCreateBaseRuntimeClassLoader(),
                 curatedApplication.getQuarkusBootstrap().isAuxiliaryApplication());
         final Map<String, Object> props = new HashMap<>();
         props.put(TEST_LOCATION, testClassLocation);
@@ -274,6 +276,12 @@ public class AbstractJvmQuarkusTestExtension extends AbstractQuarkusTestWithCont
 
     public static boolean hasPerTestResources(Class<?> requiredTestClass) {
         while (requiredTestClass != Object.class) {
+            for (WithTestResource testResource : requiredTestClass.getAnnotationsByType(WithTestResource.class)) {
+                if (testResource.restrictToAnnotatedClass()) {
+                    return true;
+                }
+            }
+
             for (QuarkusTestResource testResource : requiredTestClass.getAnnotationsByType(QuarkusTestResource.class)) {
                 if (testResource.restrictToAnnotatedClass()) {
                     return true;
@@ -282,9 +290,12 @@ public class AbstractJvmQuarkusTestExtension extends AbstractQuarkusTestWithCont
             // scan for meta-annotations
             for (Annotation annotation : requiredTestClass.getAnnotations()) {
                 // skip TestResource annotations
-                if (annotation.annotationType() != QuarkusTestResource.class) {
+                var annotationType = annotation.annotationType();
+
+                if ((annotationType != WithTestResource.class) && (annotationType != QuarkusTestResource.class)) {
                     // look for a TestResource on the annotation itself
-                    if (annotation.annotationType().getAnnotationsByType(QuarkusTestResource.class).length > 0) {
+                    if ((annotationType.getAnnotationsByType(WithTestResource.class).length > 0)
+                            || (annotationType.getAnnotationsByType(QuarkusTestResource.class).length > 0)) {
                         // meta-annotations are per-test scoped for now
                         return true;
                     }

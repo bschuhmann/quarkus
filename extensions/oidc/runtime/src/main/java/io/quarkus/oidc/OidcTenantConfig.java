@@ -357,6 +357,7 @@ public class OidcTenantConfig extends OidcCommonConfig {
          * Additional properties which is added as the query parameters to the logout redirect URI.
          */
         @ConfigItem
+        @ConfigDocMapKey("query-parameter-name")
         public Map<String, String> extraParams;
 
         /**
@@ -641,7 +642,10 @@ public class OidcTenantConfig extends OidcCommonConfig {
          * either `quarkus.oidc.credentials.secret` or `quarkus.oidc.credentials.client-secret.value` is checked.
          * Finally, `quarkus.oidc.credentials.jwt.secret` which can be used for `client_jwt_secret` authentication is
          * checked.
-         * The secret is auto-generated if it remains uninitialized after checking all of these properties.
+         * The secret is auto-generated every time an application starts if it remains uninitialized after checking all of these
+         * properties.
+         * Generated secret can not decrypt the session cookie encrypted before the restart, therefore a user re-authentication
+         * will be required.
          * <p>
          * The length of the secret used to encrypt the tokens should be at least 32 characters long.
          * A warning is logged if the secret length is less than 16 characters.
@@ -981,17 +985,34 @@ public class OidcTenantConfig extends OidcCommonConfig {
         public Optional<String> errorPath = Optional.empty();
 
         /**
+         * Relative path to the public endpoint which an authenticated user is redirected to when the session has expired.
+         * <p>
+         * When the OIDC session has expired and the session can not be refreshed, a user is redirected
+         * to the OIDC provider to re-authenticate. The user experience may not be ideal in this case
+         * as it may not be obvious to the authenticated user why an authentication challenge is returned.
+         * <p>
+         * Set this property if you would like the user whose session has expired be redirected to a public application specific
+         * page
+         * instead, which can inform that the session has expired and advise the user to re-authenticated by following
+         * a link to the secured initial entry page.
+         */
+        @ConfigItem
+        public Optional<String> sessionExpiredPath = Optional.empty();
+
+        /**
          * Both ID and access tokens are fetched from the OIDC provider as part of the authorization code flow.
+         * <p>
          * ID token is always verified on every user request as the primary token which is used
          * to represent the principal and extract the roles.
-         * Access token is not verified by default since it is meant to be propagated to the downstream services.
-         * The verification of the access token should be enabled if it is injected as a JWT token.
-         *
-         * Access tokens obtained as part of the code flow are always verified if `quarkus.oidc.roles.source`
-         * property is set to `accesstoken` which means the authorization decision is based on the roles extracted from the
-         * access token.
-         *
-         * Bearer access tokens are always verified.
+         * <p>
+         * Authorization code flow access token is meant to be propagated to downstream services
+         * and is not verified by default unless `quarkus.oidc.roles.source` property is set to `accesstoken`
+         * which means the authorization decision is based on the roles extracted from the access token.
+         * <p>
+         * Authorization code flow access token verification is also enabled if this token is injected as JsonWebToken.
+         * Set this property to `false` if it is not required.
+         * <p>
+         * Bearer access token is always verified.
          */
         @ConfigItem(defaultValueDocumentation = "true when access token is injected as the JsonWebToken bean, false otherwise")
         public boolean verifyAccessToken;
@@ -1037,6 +1058,7 @@ public class OidcTenantConfig extends OidcCommonConfig {
          * Additional properties added as query parameters to the authentication redirect URI.
          */
         @ConfigItem
+        @ConfigDocMapKey("parameter-name")
         public Map<String, String> extraParams = new HashMap<>();
 
         /**
@@ -1129,10 +1151,14 @@ public class OidcTenantConfig extends OidcCommonConfig {
 
         /**
          * If this property is set to `true`, an OIDC UserInfo endpoint is called.
-         * This property is enabled if `quarkus.oidc.roles.source` is `userinfo`.
-         * or `quarkus.oidc.token.verify-access-token-with-user-info` is `true`
+         * <p>
+         * This property is enabled automatically if `quarkus.oidc.roles.source` is set to `userinfo`
+         * or `quarkus.oidc.token.verify-access-token-with-user-info` is set to `true`
          * or `quarkus.oidc.authentication.id-token-required` is set to `false`,
-         * you do not need to enable this property manually in these cases.
+         * the current OIDC tenant must support a UserInfo endpoint in these cases.
+         * <p>
+         * It is also enabled automatically if `io.quarkus.oidc.UserInfo` injection point is detected but only
+         * if the current OIDC tenant supports a UserInfo endpoint.
          */
         @ConfigItem(defaultValueDocumentation = "true when UserInfo bean is injected, false otherwise")
         public Optional<Boolean> userInfoRequired = Optional.empty();
@@ -1147,6 +1173,16 @@ public class OidcTenantConfig extends OidcCommonConfig {
          */
         @ConfigItem(defaultValue = "5M")
         public Duration sessionAgeExtension = Duration.ofMinutes(5);
+
+        /**
+         * State cookie age in minutes.
+         * State cookie is created every time a new authorization code flow redirect starts
+         * and removed when this flow is completed.
+         * State cookie name is unique by default, see {@link #allowMultipleCodeFlows}.
+         * Keep its age to the reasonable minimum value such as 5 minutes or less.
+         */
+        @ConfigItem(defaultValue = "5M")
+        public Duration stateCookieAge = Duration.ofMinutes(5);
 
         /**
          * If this property is set to `true`, a normal 302 redirect response is returned
@@ -1441,6 +1477,22 @@ public class OidcTenantConfig extends OidcCommonConfig {
         public void setScopeSeparator(String scopeSeparator) {
             this.scopeSeparator = Optional.of(scopeSeparator);
         }
+
+        public Duration getStateCookieAge() {
+            return stateCookieAge;
+        }
+
+        public void setStateCookieAge(Duration stateCookieAge) {
+            this.stateCookieAge = stateCookieAge;
+        }
+
+        public Optional<String> getSessionExpiredPath() {
+            return sessionExpiredPath;
+        }
+
+        public void setSessionExpiredPath(String sessionExpiredPath) {
+            this.sessionExpiredPath = Optional.of(sessionExpiredPath);
+        }
     }
 
     /**
@@ -1454,12 +1506,14 @@ public class OidcTenantConfig extends OidcCommonConfig {
          * which must be included to complete the authorization code grant request.
          */
         @ConfigItem
+        @ConfigDocMapKey("parameter-name")
         public Map<String, String> extraParams = new HashMap<>();
 
         /**
          * Custom HTTP headers which must be sent to complete the authorization code grant request.
          */
         @ConfigItem
+        @ConfigDocMapKey("header-name")
         public Map<String, String> headers = new HashMap<>();
 
         public Map<String, String> getExtraParams() {

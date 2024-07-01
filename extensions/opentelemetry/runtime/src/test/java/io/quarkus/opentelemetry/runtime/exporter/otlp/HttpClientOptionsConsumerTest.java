@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test;
 
 import io.quarkus.opentelemetry.runtime.config.runtime.exporter.CompressionType;
 import io.quarkus.opentelemetry.runtime.config.runtime.exporter.OtlpExporterTracesConfig;
-import io.quarkus.runtime.TlsConfig;
+import io.quarkus.tls.TlsConfiguration;
+import io.quarkus.tls.TlsConfigurationRegistry;
 import io.vertx.core.http.HttpClientOptions;
 
 class HttpClientOptionsConsumerTest {
@@ -25,7 +26,7 @@ class HttpClientOptionsConsumerTest {
         OTelExporterRecorder.HttpClientOptionsConsumer consumer = new OTelExporterRecorder.HttpClientOptionsConsumer(
                 createExporterConfig(false),
                 URI.create("http://localhost:4317"),
-                createTLSConfig());
+                new NoopTlsConfigurationRegistry());
 
         HttpClientOptions httpClientOptions = new HttpClientOptions();
         consumer.accept(httpClientOptions);
@@ -37,7 +38,7 @@ class HttpClientOptionsConsumerTest {
         OTelExporterRecorder.HttpClientOptionsConsumer consumer = new OTelExporterRecorder.HttpClientOptionsConsumer(
                 createExporterConfig(true),
                 URI.create("http://localhost:4317"),
-                createTLSConfig());
+                new NoopTlsConfigurationRegistry());
 
         HttpClientOptions httpClientOptions = new HttpClientOptions();
         consumer.accept(httpClientOptions);
@@ -46,10 +47,6 @@ class HttpClientOptionsConsumerTest {
         assertThat(httpClientOptions.getProxyOptions().getPort(), is(9999));
         assertThat(httpClientOptions.getProxyOptions().getUsername(), is("proxy-username"));
         assertThat(httpClientOptions.getProxyOptions().getPassword(), is("proxy-password"));
-    }
-
-    private TlsConfig createTLSConfig() {
-        return new TlsConfig();
     }
 
     private OtlpExporterTracesConfig createExporterConfig(final boolean isEnabled) {
@@ -110,6 +107,11 @@ class HttpClientOptionsConsumerTest {
             }
 
             @Override
+            public Optional<String> tlsConfigurationName() {
+                return Optional.empty();
+            }
+
+            @Override
             public ProxyConfig proxyOptions() {
                 return new ProxyConfig() {
                     @Override
@@ -139,5 +141,22 @@ class HttpClientOptionsConsumerTest {
                 };
             }
         };
+    }
+
+    private static class NoopTlsConfigurationRegistry implements TlsConfigurationRegistry {
+        @Override
+        public Optional<TlsConfiguration> get(String name) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<TlsConfiguration> getDefault() {
+            return Optional.empty();
+        }
+
+        @Override
+        public void register(String name, TlsConfiguration configuration) {
+
+        }
     }
 }

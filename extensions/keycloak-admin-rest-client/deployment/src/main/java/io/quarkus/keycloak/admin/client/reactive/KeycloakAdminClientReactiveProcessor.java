@@ -10,6 +10,7 @@ import org.keycloak.json.StringListMapDeserializer;
 import org.keycloak.json.StringOrArrayDeserializer;
 import org.keycloak.json.StringOrArraySerializer;
 
+import io.quarkus.arc.BeanDestroyer;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -21,11 +22,9 @@ import io.quarkus.deployment.builditem.ServiceStartBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveHierarchyIgnoreWarningBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
-import io.quarkus.keycloak.admin.client.common.AutoCloseableDestroyer;
 import io.quarkus.keycloak.admin.client.common.KeycloakAdminClientInjectionEnabled;
 import io.quarkus.keycloak.admin.client.reactive.runtime.ResteasyReactiveClientProvider;
 import io.quarkus.keycloak.admin.client.reactive.runtime.ResteasyReactiveKeycloakAdminClientRecorder;
-import io.quarkus.runtime.TlsConfig;
 
 public class KeycloakAdminClientReactiveProcessor {
 
@@ -54,8 +53,8 @@ public class KeycloakAdminClientReactiveProcessor {
     @Record(ExecutionTime.STATIC_INIT)
     @Produce(ServiceStartBuildItem.class)
     @BuildStep
-    public void integrate(ResteasyReactiveKeycloakAdminClientRecorder recorder, TlsConfig tlsConfig) {
-        recorder.setClientProvider(tlsConfig.trustAll);
+    public void integrate(ResteasyReactiveKeycloakAdminClientRecorder recorder) {
+        recorder.setClientProvider();
     }
 
     @Record(ExecutionTime.RUNTIME_INIT)
@@ -70,7 +69,7 @@ public class KeycloakAdminClientReactiveProcessor {
                 .defaultBean()
                 .unremovable()
                 .supplier(recorder.createAdminClient())
-                .destroyer(AutoCloseableDestroyer.class)
+                .destroyer(BeanDestroyer.AutoCloseableDestroyer.class)
                 .done());
     }
 }

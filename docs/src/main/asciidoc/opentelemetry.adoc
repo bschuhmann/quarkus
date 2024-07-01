@@ -167,7 +167,21 @@ If you need to enable or disable the exporter at runtime, you can use the <<samp
 
 == Run the application
 
-The first step is to configure and start the https://opentelemetry.io/docs/collector/[OpenTelemetry Collector] to receive, process and export telemetry data to https://www.jaegertracing.io/[Jaeger] that will display the captured traces.
+First we need to start a system to visualise the OpenTelemetry data.
+We have 2 options:
+
+* Start an all-in-one Grafana OTel LGTM system for traces and metrics.
+* Jaeger system just for traces.
+
+=== Grafana OTel LGTM option
+
+* Take a look at: xref:observability-devservices-lgtm.adoc[Getting Started with Grafana-OTel-LGTM].
+
+This features a Quarkus Dev service including a Grafana for visualizing data, Loki to store logs, Tempo to store traces and Prometheus to store metrics. Also provides and OTel collector to receive the data.
+
+=== Jaeger to see traces option
+
+Configure and start the https://opentelemetry.io/docs/collector/[OpenTelemetry Collector] to receive, process and export telemetry data to https://www.jaegertracing.io/[Jaeger] that will display the captured traces.
 
 [NOTE]
 ====
@@ -196,6 +210,8 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
 ----
 You should remove the optional ports you don't need them.
+
+=== Start the application
 
 Now we are ready to run our application. If using `application.properties` to configure the tracer:
 
@@ -381,6 +397,32 @@ public class CustomConfiguration {
     }
 }
 ----
+
+==== End User attributes
+
+When enabled, Quarkus adds OpenTelemetry End User attributes as Span attributes.
+Before you enable this feature, verify that Quarkus Security extension is present and configured.
+More information about the Quarkus Security can be found in the xref:security-overview.adoc[Quarkus Security overview].
+
+The attributes are only added when authentication has already happened on a best-efforts basis.
+Whether the End User attributes are added as Span attributes depends on authentication and authorization configuration of your Quarkus application.
+If you create custom Spans prior to the authentication, Quarkus cannot add the End User attributes to them.
+Quarkus is only able to add the attributes to the Span that is current after the authentication has been finished.
+Another important consideration regarding custom Spans is active CDI request context that is used to propagate Quarkus `SecurityIdentity`.
+In principle, Quarkus is able to add the End User attributes when the CDI request context has been activated for you before the custom Spans are created.
+
+[source,application.properties]
+----
+quarkus.otel.traces.eusp.enabled=true <1>
+quarkus.http.auth.proactive=true <2>
+----
+<1> Enable the End User Attributes feature so that the `SecurityIdentity` principal and roles are added as Span attributes.
+The End User attributes are personally identifiable information, therefore make sure you want to export them before you enable this feature.
+<2> Optionally enable proactive authentication.
+The best possible results are achieved when proactive authentication is enabled because the authentication happens sooner.
+A good way to determine whether proactive authentication should be enabled in your Quarkus application is to read the Quarkus xref:security-proactive-authentication.adoc[Proactive authentication] guide.
+
+IMPORTANT: This feature is not supported when a custom xref:security-customization.adoc#jaxrs-security-context[Jakarta REST SecurityContexts] is used.
 
 [[sampler]]
 === Sampler
@@ -642,6 +684,7 @@ Additional exporters will be available in the Quarkiverse https://docs.quarkiver
 * https://quarkus.io/guides/resteasy-client[`quarkus-resteasy-client`]
 * https://quarkus.io/guides/scheduler[`quarkus-scheduler`]
 * https://quarkus.io/guides/smallrye-graphql[`quarkus-smallrye-graphql`]
+* https://quarkus.io/extensions/io.quarkus/quarkus-mongodb-client[`quarkus-mongodb-client`]
 * https://quarkus.io/extensions/io.quarkus/quarkus-messaging[`quarkus-messaging`]
 ** AMQP 1.0
 ** RabbitMQ

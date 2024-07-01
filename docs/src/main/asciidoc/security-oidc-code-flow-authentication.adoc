@@ -97,7 +97,7 @@ This URL will log the user out of all the applications into which the user is cu
 However, if the requirement is for the current application to log the user out of a specific application only, you can override the global end-session URL, by setting the `quarkus.oidc.end-session-path=logout` parameter.
 
 [[oidc-provider-client-authentication]]
-==== OIDC provider client authentication
+=== OIDC provider client authentication
 
 OIDC providers typically require applications to be identified and authenticated when they interact with the OIDC endpoints.
 Quarkus OIDC, specifically the `quarkus.oidc.runtime.OidcProviderClient` class, authenticates to the OIDC provider when the authorization code must be exchanged for the ID, access, and refresh tokens, or when the ID and access tokens must be refreshed or introspected.
@@ -133,6 +133,8 @@ quarkus.oidc.client-id=quarkus-app
 
 # This is a key which will be used to retrieve a secret from the map of credentials returned from CredentialsProvider
 quarkus.oidc.credentials.client-secret.provider.key=mysecret-key
+# This is the keyring provided to the CredentialsProvider when looking up the secret, set only if required by the CredentialsProvider implementation
+quarkus.oidc.credentials.client-secret.provider.keyring-name=oidc
 # Set it only if more than one CredentialsProvider can be registered
 quarkus.oidc.credentials.client-secret.provider.name=oidc-credentials-provider
 ----
@@ -165,6 +167,8 @@ quarkus.oidc.client-id=quarkus-app
 
 # This is a key which will be used to retrieve a secret from the map of credentials returned from CredentialsProvider
 quarkus.oidc.credentials.jwt.secret-provider.key=mysecret-key
+# This is the keyring provided to the CredentialsProvider when looking up the secret, set only if required by the CredentialsProvider implementation
+quarkus.oidc.credentials.client-secret.provider.keyring-name=oidc
 # Set it only if more than one CredentialsProvider can be registered
 quarkus.oidc.credentials.jwt.secret-provider.name=oidc-credentials-provider
 ----
@@ -203,7 +207,7 @@ quarkus.oidc.credentials.jwt.key-id=mykeyAlias
 
 Using `client_secret_jwt` or `private_key_jwt` authentication methods ensures that a client secret does not get sent to the OIDC provider, therefore avoiding the risk of a secret being intercepted by a  'man-in-the-middle' attack.
 
-===== Additional JWT authentication options
+==== Additional JWT authentication options
 
 If `client_secret_jwt`, `private_key_jwt`, or an Apple `post_jwt` authentication methods are used, then you can customize the JWT signature algorithm, key identifier, audience, subject and issuer.
 For example:
@@ -234,7 +238,7 @@ quarkus.oidc.credentials.jwt.subject=custom-subject
 quarkus.oidc.credentials.jwt.issuer=custom-issuer
 ----
 
-===== Apple POST JWT
+==== Apple POST JWT
 
 The Apple OIDC provider uses a `client_secret_post` method whereby a secret is a JWT produced with a `private_key_jwt` authentication method, but with the Apple account-specific issuer and subject claims.
 
@@ -254,7 +258,7 @@ quarkus.oidc.credentials.jwt.subject=${apple.subject}
 quarkus.oidc.credentials.jwt.issuer=${apple.issuer}
 ----
 
-===== mutual TLS (mTLS)
+==== mutual TLS (mTLS)
 
 Some OIDC providers might require that a client is authenticated as part of the mutual TLS  authentication process.
 
@@ -279,7 +283,7 @@ quarkus.oidc.tls.trust-store-password=${trust-store-password}
 #quarkus.oidc.tls.trust-store-alias=certAlias
 ----
 
-===== POST query
+==== POST query
 
 Some providers, such as the xref:security-openid-connect-providers#strava[Strava OAuth2 provider], require client credentials be posted as HTTP POST query parameters:
 
@@ -305,7 +309,7 @@ quarkus.oidc.introspection-credentials.secret=introspection-user-secret
 ----
 
 [[oidc-request-filters]]
-==== OIDC request filters
+=== OIDC request filters
 
 You can filter OIDC requests made by Quarkus to the OIDC provider by registering one or more `OidcRequestFilter` implementations, which can update or add new request headers and can also log requests.
 
@@ -369,7 +373,7 @@ public class OidcDiscoveryRequestCustomizer implements OidcRequestFilter {
 ----
 <1> Restrict this filter to requests targeting the OIDC discovery endpoint only.
 
-==== Redirecting to and from the OIDC provider
+=== Redirecting to and from the OIDC provider
 
 When a user is redirected to the OIDC provider to authenticate, the redirect URL includes a `redirect_uri` query parameter, which indicates to the provider where the user has to be redirected to when the authentication is complete.
 In our case, this is the Quarkus application.
@@ -385,6 +389,7 @@ For example, `quarkus.oidc.authentication.redirect-path=/service/callback`, and 
 If `quarkus.oidc.authentication.redirect-path` is set, but you need the original request URL to be restored after the user is redirected back to a unique callback URL, for example,  `http://localhost:8080/service/callback`, set `quarkus.oidc.authentication.restore-path-after-redirect` property to `true`.
 This will restore the request URL such as `http://localhost:8080/service/1`.
 
+[[customize-authentication-requests]]
 ==== Customizing authentication requests
 
 By default, only the `response_type` (set to `code`), `scope` (set to `openid`), `client_id`, `redirect_uri`, and `state` properties are passed as HTTP query parameters to the OIDC provider's authorization endpoint when the user is redirected to it to authenticate.
@@ -397,6 +402,8 @@ The following example shows how you can work around this issue:
 ----
 quarkus.oidc.authentication.extra-params.response_mode=query
 ----
+
+See also the <<oidc-redirect-filters>> section explaining how a custom `OidcRedirectFilter` can be used to customize OIDC redirects, including those to the OIDC authorization endpoint.
 
 ==== Customizing the authentication error response
 
@@ -421,6 +428,133 @@ For example, if it is set to '/error' and the current request URI is `https://lo
 ====
 To prevent the user from being redirected to this page to be re-authenticated, ensure that this error endpoint is a public resource.
 ====
+
+[[oidc-redirect-filters]]
+=== OIDC redirect filters
+
+You can register one or more `io.quarkus.oidc.OidcRedirectFilter` implementations to filter OIDC redirects to OIDC authorization and logout endpoints but also local redirects to custom error and session expired pages. Custom `OidcRedirectFilter` can add additional query parameters, response headers and set new cookies.
+
+For example, the following simple custom `OidcRedirectFilter` adds an additional query parameter and a custom response header for all redirect requests that can be done by Quarkus OIDC:
+
+[source,java]
+----
+package io.quarkus.it.keycloak;
+
+import jakarta.enterprise.context.ApplicationScoped;
+
+import io.quarkus.arc.Unremovable;
+import io.quarkus.oidc.OidcRedirectFilter;
+
+@ApplicationScoped
+@Unremovable
+public class GlobalOidcRedirectFilter implements OidcRedirectFilter {
+
+    @Override
+    public void filter(OidcRedirectContext context) {
+        if (context.redirectUri().contains("/session-expired-page")) {
+            context.additionalQueryParams().add("redirect-filtered", "true,"); <1>
+            context.routingContext().response().putHeader("Redirect-Filtered", "true"); <2>
+        }
+    }
+
+}
+----
+<1> Add an additional query parameter. Note the queury names and values are URL-encoded by Quarkus OIDC, a `redirect-filtered=true%20C` query parameter is added to the redirect URI in this case.
+<2> Add a custom HTTP response header.
+
+See also the <<customize-authentication-requests>> section how to configure additional query parameters for OIDC authorization point.
+
+Custom `OidcRedirectFilter` for local error and session expired pages can also create secure cookies to help with generating such pages.
+
+For example, let's assume you need to redirect the current user whose session has expired to a custom session expired page available at `http://localhost:8080/session-expired-page`. The following custom `OidcRedirectFilter` encrypts the user name in a custom `session_expired` cookie using an OIDC tenant client secret:
+
+[source,java]
+----
+package io.quarkus.it.keycloak;
+
+import jakarta.enterprise.context.ApplicationScoped;
+
+import org.eclipse.microprofile.jwt.Claims;
+
+import io.quarkus.arc.Unremovable;
+import io.quarkus.oidc.AuthorizationCodeTokens;
+import io.quarkus.oidc.OidcRedirectFilter;
+import io.quarkus.oidc.Redirect;
+import io.quarkus.oidc.TenantFeature;
+import io.quarkus.oidc.runtime.OidcUtils;
+import io.smallrye.jwt.build.Jwt;
+
+@ApplicationScoped
+@Unremovable
+@TenantFeature("tenant-refresh")
+@Redirect(Location.SESSION_EXPIRED_PAGE) <1>
+public class SessionExpiredOidcRedirectFilter implements OidcRedirectFilter {
+
+    @Override
+    public void filter(OidcRedirectContext context) {
+
+        if (context.redirectUri().contains("/session-expired-page")) {
+        AuthorizationCodeTokens tokens = context.routingContext().get(AuthorizationCodeTokens.class.getName()); <2>
+        String userName = OidcUtils.decodeJwtContent(tokens.getIdToken()).getString(Claims.preferred_username.name()); <3>
+        String jwe = Jwt.preferredUserName(userName).jwe()
+                .encryptWithSecret(context.oidcTenantConfig().credentials.secret.get()); <4>
+        OidcUtils.createCookie(context.routingContext(), context.oidcTenantConfig(), "session_expired",
+                jwe + "|" + context.oidcTenantConfig().tenantId.get(), 10); <5>
+     }
+    }
+}
+
+----
+<1> Make sure this redirect filter is only called during a redirect to the session expired page.
+<2> Access `AuthorizationCodeTokens` tokens associated with the now expired session as a `RoutingContext`  attribute.
+<3> Decode ID token claims and get a user name.
+<4> Save the user name in a JWT token encrypted with the current OIDC tenant's client secret.
+<5> Create a custom `session_expired` cookie valid for 5 seconds which joins the encrypted token and a tenant id using a "|" separator. Recording a tenant id in a custom cookie can help to generate correct session expired pages in a multi-tenant OIDC setup.
+
+Next, a public JAX-RS resource which generates session expired pages can use this cookie to create a page tailored for this user and the corresponding OIDC tenant, for example:
+
+[source,java]
+----
+package io.quarkus.it.keycloak;
+
+import jakarta.inject.Inject;
+import jakarta.ws.rs.CookieParam;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+
+import org.eclipse.microprofile.jwt.Claims;
+import org.eclipse.microprofile.jwt.JsonWebToken;
+
+import io.quarkus.oidc.OidcTenantConfig;
+import io.quarkus.oidc.runtime.TenantConfigBean;
+import io.smallrye.jwt.auth.principal.DefaultJWTParser;
+import io.vertx.ext.web.RoutingContext;
+
+@Path("/session-expired-page")
+public class SessionExpiredResource {
+
+    @Inject
+    TenantConfigBean tenantConfig; <1>
+
+    @GET
+    public String sessionExpired(@CookieParam("session_expired") String sessionExpired) throws Exception {
+        // Cookie format: jwt|<tenant id>
+
+        String[] pair = sessionExpired.split("\\|"); <2>
+        OidcTenantConfig oidcConfig = tenantConfig.getStaticTenantsConfig().get(pair[1]).getOidcTenantConfig(); <3>
+        JsonWebToken jwt = new DefaultJWTParser().decrypt(pair[0], oidcConfig.credentials.secret.get()); <4>
+        OidcUtils.removeCookie(context, oidcConfig, "session_expired"); <5>
+        return jwt.getClaim(Claims.preferred_username) + ", your session has expired. "
+                + "Please login again at http://localhost:8081/" + oidcConfig.tenantId.get(); <6>
+    }
+}
+----
+<1> Inject `TenantConfigBean` which can be used to access all the current OIDC tenant configurations.
+<2> Split the custom cookie value into 2 parts, first part is the encrypted token, last part is the tenant id.
+<3> Get the OIDC tenant configuration.
+<4> Decrypt the cookie value using the OIDC tenant's client secret.
+<5> Remove the custom cookie.
+<6> Use the username in the decrypted token and the tenant id to generate the service expired page response.
 
 === Accessing authorization data
 
@@ -494,6 +628,11 @@ public class ProtectedResource {
 
 [NOTE]
 ====
+When an authorization code flow access token is injected as `JsonWebToken`, its verification is automatically enabled, in addition to the mandatory ID token verification. If really needed, you can disable this code flow access token verification with `quarkus.oidc.authentication.verify-access-token=false`.
+====
+
+[NOTE]
+====
 `AccessTokenCredential` is used if the access token issued to the Quarkus `web-app` application is opaque (binary) and cannot be parsed to a `JsonWebToken` or if the inner content is necessary for the application.
 ====
 
@@ -509,6 +648,12 @@ Set the `quarkus.oidc.authentication.user-info-required=true` property to reques
 
 A request is sent to the OIDC provider `UserInfo` endpoint by using the access token returned with the authorization code grant response, and an `io.quarkus.oidc.UserInfo` (a simple `jakarta.json.JsonObject` wrapper) object is created.
 `io.quarkus.oidc.UserInfo` can be injected or accessed as a SecurityIdentity `userinfo` attribute.
+
+`quarkus.oidc.authentication.user-info-required` is automatically enabled if one of these conditions is met:
+
+- if `quarkus.oidc.roles.source` is set to `userinfo` or `quarkus.oidc.token.verify-access-token-with-user-info` is set to `true` or `quarkus.oidc.authentication.id-token-required` is set to `false`, the current OIDC tenant must support a UserInfo endpoint in these cases.
+
+- if `io.quarkus.oidc.UserInfo` injection point is detected but only if the current OIDC tenant supports a UserInfo endpoint.
 
 [[config-metadata]]
 ==== Accessing the OIDC configuration information
@@ -572,11 +717,11 @@ For information about the claim verification, including the `iss` (issuer) claim
 It applies to ID tokens and also to access tokens in a JWT format, if the `web-app` application has requested the access token verification.
 
 [[jose4j-validator]]
-=== Jose4j Validator
+==== Jose4j Validator
 
 You can register a custom [Jose4j Validator] to customize the JWT claim verification process. See xref:security-oidc-bearer-token-authentication.adoc#jose4j-validator[Jose4j] section for more information.
 
-==== Further security with Proof Key for Code Exchange (PKCE)
+=== Proof Key for Code Exchange (PKCE)
 
 link:https://datatracker.ietf.org/doc/html/rfc7636[Proof Key for Code Exchange] (PKCE) minimizes the risk of authorization code interception.
 
@@ -597,7 +742,6 @@ This secret will be auto-generated if it is not configured and if the fallback t
 The secret key is required to encrypt a randomly generated PKCE `code_verifier` while the user is redirected with the `code_challenge` query parameter to an OIDC provider to authenticate.
 The `code_verifier` is decrypted when the user is redirected back to Quarkus and sent to the token endpoint alongside the `code`, client secret, and other parameters to complete the code exchange.
 The provider will fail the code exchange if a `SHA256` digest of the `code_verifier` does not match the `code_challenge` that was provided during the authentication request.
-
 
 === Handling and controlling the lifetime of authentication
 
@@ -632,6 +776,17 @@ For example, if you have Quarkus services deployed on the following two domains,
 * \https://whatever.wherever.company.net/
 * \https://another.address.company.net/
 
+[[state-cookies]]
+==== State cookies
+
+State cookies are used to support authorization code flow completion.
+When an authorization code flow is started, Quarkus creates a state cookie and a matching `state` query parameter, before redirecting the user to the OIDC provider.
+When the user is redirected back to Quarkus to complete the authorization code flow, Quarkus expects that the request URI must contain the `state` query parameter and it must match the current state cookie value.
+
+The default state cookie age is 5 mins and you can change it with a `quarkus.oidc.authenticaion.state-cookie-age` Duration property.
+
+Quarkus creates a unique state cookie name every time a new authorization code flow is started to support multi-tab authentication. Many concurrent authentication requests on behalf of the same user may cause a lot of state cookies be created.
+If you do not want to allow your users use multiple browser tabs to authenticate then it is recommended to disable it with `quarkus.oidc.authenticaion.allow-multiple-code-flows=false`. It also ensures that the same state cookie name is created for every new user authentication.
 
 [[token-state-manager]]
 ==== Session cookie and default TokenStateManager
@@ -640,8 +795,11 @@ OIDC `CodeAuthenticationMechanism` uses the default `io.quarkus.oidc.TokenStateM
 
 It makes Quarkus OIDC endpoints completely stateless and it is recommended to follow this strategy to achieve the best scalability results.
 
-See the <<db-token-state-manager>> and <<custom-token-state-manager>> sections of this guide for alternative approaches to storing tokens.
-For example, storing tokens in the database or other server-side storage, if you prefer and have good reasons for storing the token state on the server.
+ifndef::no-quarkus-oidc-db-token-state-manager[]
+Refer to the <<db-token-state-manager>> section of this guide for information on storing tokens in the database or other server-side storage solutions. This approach is suitable if you prefer and have compelling reasons to store the token state on the server.
+endif::no-quarkus-oidc-db-token-state-manager[]
+
+See the <<custom-token-state-manager>> section for alternative methods of token storage. This is ideal for those seeking customized solutions for token state management, especially when standard server-side storage does not meet your specific requirements.
 
 You can configure the default `TokenStateManager` to avoid saving an access token in the session cookie and to only keep ID and refresh tokens or a single ID token only.
 
@@ -667,8 +825,10 @@ In such cases, use the `quarkus.oidc.token-state-manager.strategy` property to c
 If your chosen session cookie strategy combines tokens and generates a large session cookie value that is greater than 4KB, some browsers might not be able to handle such cookie sizes.
 This can occur when the ID, access, and refresh tokens are JWT tokens and the selected strategy is `keep-all-tokens` or with ID and refresh tokens when the strategy is `id-refresh-token`.
 To work around this issue, you can set `quarkus.oidc.token-state-manager.split-tokens=true` to create a unique session token for each token.
+ifndef::no-quarkus-oidc-db-token-state-manager[]
 An alternative solution is to have the tokens saved in the database.
 For more information, see <<db-token-state-manager>>.
+endif::no-quarkus-oidc-db-token-state-manager[]
 
 The default `TokenStateManager` encrypts the tokens before storing them in the session cookie.
 The following example shows how you configure it to split the tokens and encrypt them:
@@ -760,6 +920,7 @@ public class CustomTokenStateManager implements TokenStateManager {
 
 For information about the default `TokenStateManager` storing tokens in an encrypted session cookie, see <<token-state-manager>>.
 
+ifndef::no-quarkus-oidc-db-token-state-manager[]
 For information about the custom Quarkus `TokenStateManager` implementation storing tokens in a database, see <<db-token-state-manager>>.
 
 [[db-token-state-manager]]
@@ -861,8 +1022,9 @@ public class OidcDbTokenStateManagerEntity {
 <1> The Hibernate ORM extension will only create this table for you when the database schema is generated.
 For more information, refer to the xref:hibernate-orm.adoc[Hibernate ORM] guide.
 <2> You can choose a column length depending on the length of your tokens.
+endif::no-quarkus-oidc-db-token-state-manager[]
 
-==== Logout and expiration
+=== Logout and expiration
 
 There are two main ways for the authentication information to expire: the tokens expired and were not renewed or an explicit logout operation was triggered.
 
@@ -870,7 +1032,7 @@ Let's start with explicit logout operations.
 
 
 [[user-initiated-logout]]
-===== User-initiated logout
+==== User-initiated logout
 
 Users can request a logout by sending a request to the Quarkus endpoint logout path set with a `quarkus.oidc.logout.path` property.
 For example, if the endpoint address is `https://application.com/webapp` and the `quarkus.oidc.logout.path` is set to "/logout", then the logout request must be sent to `https://application.com/webapp/logout`.
@@ -946,7 +1108,7 @@ quarkus.oidc.logout.extra-params.client_id=${quarkus.oidc.client-id}
 ====
 
 [[back-channel-logout]]
-===== Back-channel logout
+==== Back-channel logout
 
 The OIDC provider can force the logout of all applications by using the authentication data.
 This is known as back-channel logout.
@@ -973,7 +1135,7 @@ You will also need to configure a token age property for the logout token verifi
 For example, set `quarkus.oidc.token.age=10S` to ensure that no more than 10 seconds elapse since the logout token's `iat` (issued at) time.
 
 [[front-channel-logout]]
-===== Front-channel logout
+==== Front-channel logout
 
 You can use link:https://openid.net/specs/openid-connect-frontchannel-1_0.html[Front-channel logout] to log out the current user directly from the user agent, for example, its browser.
 It is similar to <<back-channel-logout,Back-channel logout>> but the logout steps are executed by the user agent, such as the browser, and not in the background by the OIDC provider.
@@ -994,7 +1156,7 @@ quarkus.oidc.logout.frontchannel.path=/front-channel-logout
 This path will be compared to the current request's path, and the user will be logged out if these paths match.
 
 [[local-logout]]
-===== Local logout
+==== Local logout
 
 <<user-initiated-logout,User-initiated logout>> will log the user out of the OIDC provider.
 If it is used as single sign-on, it might not be what you require.
@@ -1027,7 +1189,7 @@ public class ServiceResource {
 ----
 
 [[oidc-session]]
-====== Using `OidcSession` for local logout
+==== Using `OidcSession` for local logout
 
 `io.quarkus.oidc.OidcSession` is a wrapper around the current `IdToken`, which can help to perform a <<local-logout,Local logout>>, retrieve the current session's tenant identifier, and check when the session will expire.
 More useful methods will be added to it over time.
@@ -1081,6 +1243,18 @@ If, during the current user request, it is calculated that the current ID token 
 This property should be set to a value that is less than the ID token lifespan; the closer it is to this lifespan value, the more often the ID token is refreshed.
 
 You can further optimize this process by having a simple JavaScript function ping your Quarkus endpoint periodically to emulate the user activity, which minimizes the time frame during which the user might have to be re-authenticated.
+
+[NOTE]
+====
+When the session can not be refreshed, the currently authenticated user is redirected to the OIDC provider to re-authenticate. However, the user experience may not be ideal in such cases, if the user, after an earlier successful authentication, is suddently seeing an OIDC authentication challenge screen when trying to access an application page.
+
+Instead, you can request that the user is redirected to a public, application specific session expired page first. This page informs the user that the session has now expired and advise to re-authenticate by following a link to a secured application welcome page. The user clicks on the link and Quarkus OIDC enforces a redirect to the OIDC provider to re-authenticate. Use `quarkus.oidc.authentication.session-expired-page` relative path property, if you'd like to do it.
+
+For example, setting `quarkus.oidc.authentication.session-expired-page=/session-expired-page` will ensure that the user whose session has expired is redirected to  `http://localhost:8080/session-expired-page`, assuming the application is available at `http://localhost:8080`.
+
+See also the <<oidc-redirect-filters>> section explaining how a custom `OidcRedirectFilter` can be used to customize OIDC redirects, including those to the session expired pages.
+====
+
 
 [NOTE]
 ====
@@ -1144,7 +1318,7 @@ Most well-known social OAuth2 providers enforce rate-limiting so there is a high
 OAuth2 servers might not support a well-known configuration endpoint.
 In this case, you must disable the discovery and configure the authorization, token, and introspection and `UserInfo` endpoint paths manually.
 
-For well-known OIDC or OAuth2 providers, such as Apple, Facebook, GitHub, Google, Microsoft, Spotify, and Twitter, Quarkus can help significantly simplify your application's configuration with the `quarkus.oidc.provider` property.
+For well-known OIDC or OAuth2 providers, such as Apple, Facebook, GitHub, Google, Microsoft, Spotify, and X (formerly Twitter), Quarkus can help significantly simplify your application's configuration with the `quarkus.oidc.provider` property.
 Here is how you can integrate `quarkus-oidc` with GitHub after you have link:https://docs.github.com/en/developers/apps/building-oauth-apps/creating-an-oauth-app[created a GitHub OAuth application].
 Configure your Quarkus endpoint like this:
 
@@ -1533,6 +1707,7 @@ testImplementation("net.sourceforge.htmlunit:htmlunit")
 testImplementation("io.quarkus:quarkus-junit5")
 ----
 
+ifndef::no-deprecated-test-resource[]
 [[integration-testing-wiremock]]
 === Wiremock
 
@@ -1574,17 +1749,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
 
-import com.gargoylesoftware.htmlunit.SilentCssErrorHandler;
-import com.gargoylesoftware.htmlunit.WebClient;
-import com.gargoylesoftware.htmlunit.html.HtmlForm;
-import com.gargoylesoftware.htmlunit.html.HtmlPage;
+import org.htmlunit.SilentCssErrorHandler;
+import org.htmlunit.WebClient;
+import org.htmlunit.html.HtmlForm;
+import org.htmlunit.html.HtmlPage;
 
-import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.test.common.WithTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.oidc.server.OidcWiremockTestResource;
 
 @QuarkusTest
-@QuarkusTestResource(OidcWiremockTestResource.class)
+@WithTestResource(OidcWiremockTestResource.class)
 public class CodeFlowAuthorizationTest {
 
     @Test
@@ -1619,6 +1794,7 @@ The user `admin` has the `user` and `admin` roles by default - it can be customi
 Additionally, `OidcWiremockTestResource` sets the token issuer and audience to `https://service.example.com`,  which can be customized with `quarkus.test.oidc.token.issuer` and `quarkus.test.oidc.token.audience` system properties.
 
 `OidcWiremockTestResource` can be used to emulate all OIDC providers.
+endif::no-deprecated-test-resource[]
 
 [[integration-testing-keycloak-devservices]]
 === Dev Services for Keycloak
@@ -1646,7 +1822,7 @@ quarkus.keycloak.devservices.realm-path=quarkus-realm.json
 ----
 
 Finally, write a test code the same way as it is described in the <<integration-testing-wiremock,Wiremock>> section.
-The only difference is that `@QuarkusTestResource` is no longer needed:
+The only difference is that `@WithTestResource` is no longer needed:
 
 [source, java]
 ----
@@ -1655,6 +1831,7 @@ public class CodeFlowAuthorizationTest {
 }
 ----
 
+ifndef::no-deprecated-test-resource[]
 [[integration-testing-keycloak]]
 === Using KeycloakTestResourceLifecycleManager
 
@@ -1701,14 +1878,14 @@ Then, configure the Maven Surefire plugin as follows (and similarly the Maven Fa
 ----
 
 Now, set the configuration and write the test code the same way as it is described in the <<integration-testing-wiremock,Wiremock>> section.
-The only difference is the name of `QuarkusTestResource`:
+The only difference is the name of `WithTestResource`:
 
 [source, java]
 ----
 import io.quarkus.test.keycloak.server.KeycloakTestResourceLifecycleManager;
 
 @QuarkusTest
-@QuarkusTestResource(KeycloakTestResourceLifecycleManager.class)
+@WithTestResource(KeycloakTestResourceLifecycleManager.class)
 public class CodeFlowAuthorizationTest {
 }
 ----
@@ -1719,6 +1896,7 @@ The user `admin` has the `user` and `admin` roles by default - it can be customi
 
 By default, `KeycloakTestResourceLifecycleManager` uses HTTPS to initialize a Keycloak instance that can be disabled by specifying `keycloak.use.https=false`.
 The default realm name is `quarkus` and client id is `quarkus-web-app` - set `keycloak.realm` and `keycloak.web-app.client` system properties to customize the values if needed.
+endif::no-deprecated-test-resource[]
 
 [[integration-testing-security-annotation]]
 === TestSecurity annotation
@@ -1764,4 +1942,3 @@ From the `quarkus dev` console, type `j` to change the application global log le
 * https://www.keycloak.org/documentation.html[Keycloak documentation]
 * https://openid.net/connect/[OpenID Connect]
 * https://tools.ietf.org/html/rfc7519[JSON Web Token]
-
