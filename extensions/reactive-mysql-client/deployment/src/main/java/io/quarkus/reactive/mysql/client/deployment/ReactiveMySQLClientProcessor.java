@@ -241,7 +241,7 @@ class ReactiveMySQLClientProcessor {
         DataSourceBuildTimeConfig dataSourceBuildTimeConfig = dataSourcesBuildTimeConfig
                 .dataSources().get(dataSourceName);
         DataSourceReactiveBuildTimeConfig dataSourceReactiveBuildTimeConfig = dataSourcesReactiveBuildTimeConfig
-                .getDataSourceReactiveBuildTimeConfig(dataSourceName);
+                .dataSources().get(dataSourceName).reactive();
 
         Optional<String> dbKind = DefaultDataSourceDbKindBuildItem.resolve(dataSourceBuildTimeConfig.dbKind(),
                 defaultDataSourceDbKindBuildItems,
