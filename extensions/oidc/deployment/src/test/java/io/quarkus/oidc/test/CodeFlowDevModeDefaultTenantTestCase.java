@@ -1,6 +1,7 @@
 package io.quarkus.oidc.test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
@@ -14,10 +15,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusDevModeTest;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.keycloak.server.KeycloakTestResourceLifecycleManager;
 
-@WithTestResource(value = KeycloakTestResourceLifecycleManager.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KeycloakTestResourceLifecycleManager.class)
 public class CodeFlowDevModeDefaultTenantTestCase {
 
     private static Class<?>[] testClasses = {
@@ -61,6 +62,22 @@ public class CodeFlowDevModeDefaultTenantTestCase {
             assertEquals("alice", page.getBody().asNormalizedText());
 
             webClient.getCookieManager().clearCookies();
+
+            // Enable the invalid scope
+            test.modifyResourceFile("application.properties",
+                    s -> s.replace("#quarkus.oidc.authentication.scopes=invalid-scope",
+                            "quarkus.oidc.authentication.scopes=invalid-scope"));
+
+            try {
+                webClient.getPage("http://localhost:8080/protected");
+                fail("Exception is expected because an invalid scope is provided");
+            } catch (FailingHttpStatusCodeException ex) {
+                assertEquals(401, ex.getStatusCode());
+                assertTrue(ex.getResponse().getContentAsString()
+                        .contains(
+                                "Authorization code flow has failed, error code: invalid_scope, error description: Invalid scopes: openid invalid-scope"),
+                        "The reason behind 401 must be returned in devmode");
+            }
         }
     }
 

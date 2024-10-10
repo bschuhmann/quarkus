@@ -318,6 +318,7 @@ public final class HibernateOrmProcessor {
                                     Optional.of(DataSourceUtil.DEFAULT_DATASOURCE_NAME),
                                     jdbcDataSource.map(JdbcDataSourceBuildItem::getDbKind),
                                     jdbcDataSource.flatMap(JdbcDataSourceBuildItem::getDbVersion),
+                                    Optional.ofNullable(xmlDescriptor.getProperties().getProperty(AvailableSettings.DIALECT)),
                                     getMultiTenancyStrategy(
                                             Optional.ofNullable(persistenceXmlDescriptorBuildItem.getDescriptor()
                                                     .getProperties().getProperty("hibernate.multiTenancy"))), //FIXME this property is meaningless in Hibernate ORM 6
@@ -473,6 +474,7 @@ public final class HibernateOrmProcessor {
                 annotationClassNames.add(name.toString());
             }
             reflective.produce(ReflectiveClassBuildItem.builder(annotationClassNames.toArray(new String[0]))
+                    .reason(ClassNames.HIBERNATE_ORM_PROCESSOR.toString())
                     .methods().fields().build());
             for (String annotationClassName : annotationClassNames) {
                 proxyDefinitions.produce(new NativeImageProxyDefinitionBuildItem(annotationClassName));
@@ -744,8 +746,9 @@ public final class HibernateOrmProcessor {
                     .map(a -> a.target().asClass().name().toString())
                     .toArray(String[]::new);
 
-            reflective.produce(
-                    ReflectiveClassBuildItem.builder(metamodel).constructors(false).fields().build());
+            reflective.produce(ReflectiveClassBuildItem.builder(metamodel)
+                    .reason(ClassNames.HIBERNATE_ORM_PROCESSOR.toString())
+                    .constructors(false).fields().build());
         }
     }
 
@@ -769,8 +772,9 @@ public final class HibernateOrmProcessor {
                 .forEach(classes::add);
 
         if (!classes.isEmpty()) {
-            reflective.produce(ReflectiveClassBuildItem.builder(classes.toArray(new String[0])).constructors(false)
-                    .methods().build());
+            reflective.produce(ReflectiveClassBuildItem.builder(classes.toArray(new String[0]))
+                    .reason(ClassNames.HIBERNATE_ORM_PROCESSOR.toString())
+                    .constructors(false).methods().build());
         }
     }
 
@@ -1100,6 +1104,7 @@ public final class HibernateOrmProcessor {
                                 jdbcDataSource.map(JdbcDataSourceBuildItem::getName),
                                 jdbcDataSource.map(JdbcDataSourceBuildItem::getDbKind),
                                 jdbcDataSource.flatMap(JdbcDataSourceBuildItem::getDbVersion),
+                                persistenceUnitConfig.dialect().dialect(),
                                 multiTenancyStrategy,
                                 hibernateOrmConfig.database().ormCompatibilityVersion(),
                                 persistenceUnitConfig.unsupportedProperties()),

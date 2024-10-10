@@ -14,11 +14,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.restassured.RestAssured;
 import io.restassured.response.Response;
 
-@WithTestResource(value = KeycloakRealmUserPasswordManager.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KeycloakRealmUserPasswordManager.class)
 public class OidcClientUserPasswordTestCase {
 
     private static Class<?>[] testClasses = {
@@ -36,6 +36,17 @@ public class OidcClientUserPasswordTestCase {
     @Test
     public void testPasswordGrantToken() {
         String token = RestAssured.when().get("/client/token").body().asString();
+        RestAssured.given().auth().oauth2(token)
+                .when().get("/protected")
+                .then()
+                .statusCode(200)
+                .body(equalTo("alice"));
+
+    }
+
+    @Test
+    public void testPasswordGrantTokenProvider() {
+        String token = RestAssured.when().get("/client/tokenprovider").body().asString();
         RestAssured.given().auth().oauth2(token)
                 .when().get("/protected")
                 .then()

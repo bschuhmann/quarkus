@@ -72,6 +72,7 @@ import io.quarkus.devui.spi.page.MenuPageBuildItem;
 import io.quarkus.devui.spi.page.Page;
 import io.quarkus.devui.spi.page.PageBuilder;
 import io.quarkus.maven.dependency.ResolvedDependency;
+import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.vertx.http.deployment.NonApplicationRootPathBuildItem;
 import io.vertx.core.json.jackson.DatabindCodec;
 
@@ -107,6 +108,7 @@ public class BuildTimeContentProcessor {
         internalImportMapBuildItem.add("qwc-hot-reload-element", contextRoot + "qwc/qwc-hot-reload-element.js");
         internalImportMapBuildItem.add("qwc-abstract-log-element", contextRoot + "qwc/qwc-abstract-log-element.js");
         internalImportMapBuildItem.add("qwc-server-log", contextRoot + "qwc/qwc-server-log.js");
+        internalImportMapBuildItem.add("qwc-footer-log", contextRoot + "qwc/qwc-footer-log.js");
         internalImportMapBuildItem.add("qwc-extension-link", contextRoot + "qwc/qwc-extension-link.js");
         // Quarkus UI
         internalImportMapBuildItem.add("qui-ide-link", contextRoot + "qui/qui-ide-link.js");
@@ -208,21 +210,30 @@ public class BuildTimeContentProcessor {
 
         List<String> methodNames = new ArrayList<>();
         List<String> subscriptionNames = new ArrayList<>();
+        Map<String, RuntimeValue> recordedValues = new HashMap<>();
         for (BuildTimeActionBuildItem actions : buildTimeActions) {
             String extensionPathName = actions.getExtensionPathName(curateOutcomeBuildItem);
             for (BuildTimeAction bta : actions.getActions()) {
                 String fullName = extensionPathName + "." + bta.getMethodName();
-                DevConsoleManager.register(fullName, bta.getAction());
+                if (bta.hasRuntimeValue()) {
+                    recordedValues.put(fullName, bta.getRuntimeValue());
+                } else {
+                    DevConsoleManager.register(fullName, bta.getAction());
+                }
                 methodNames.add(fullName);
             }
             for (BuildTimeAction bts : actions.getSubscriptions()) {
                 String fullName = extensionPathName + "." + bts.getMethodName();
-                DevConsoleManager.register(fullName, bts.getAction());
+                if (bts.hasRuntimeValue()) {
+                    recordedValues.put(fullName, bts.getRuntimeValue());
+                } else {
+                    DevConsoleManager.register(fullName, bts.getAction());
+                }
                 subscriptionNames.add(fullName);
             }
         }
 
-        return new DeploymentMethodBuildItem(methodNames, subscriptionNames);
+        return new DeploymentMethodBuildItem(methodNames, subscriptionNames, recordedValues);
     }
 
     private Map<String, Object> getBuildTimeDataForPage(AbstractPageBuildItem pageBuildItem) {

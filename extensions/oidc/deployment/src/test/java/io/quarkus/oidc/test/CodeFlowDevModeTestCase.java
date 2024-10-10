@@ -40,11 +40,11 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusDevModeTest;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.keycloak.server.KeycloakTestResourceLifecycleManager;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@WithTestResource(value = KeycloakTestResourceLifecycleManager.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KeycloakTestResourceLifecycleManager.class)
 public class CodeFlowDevModeTestCase {
 
     private static Class<?>[] testClasses = {
@@ -103,7 +103,7 @@ public class CodeFlowDevModeTestCase {
             }
             webClient.getCookieManager().clearCookies();
 
-            // Now set the correct client-id
+            // Now set the correct client secret
             test.modifyResourceFile("application.properties", s -> s.replace("secret-from-vault-typo", "secret-from-vault"));
 
             page = webClient.getPage("http://localhost:8080/protected");

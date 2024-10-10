@@ -19,11 +19,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusDevModeTest;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.keycloak.server.KeycloakTestResourceLifecycleManager;
 import io.restassured.RestAssured;
 
-@WithTestResource(value = KeycloakTestResourceLifecycleManager.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KeycloakTestResourceLifecycleManager.class)
 public class OidcClientFilterDevModeTest {
 
     private static final Class<?>[] testClasses = {
@@ -46,8 +46,8 @@ public class OidcClientFilterDevModeTest {
                 .then()
                 .statusCode(401)
                 .body(equalTo("ProtectedResourceService requires a token"));
-        test.modifyResourceFile("application.properties", s -> s.replace("#quarkus.oidc-client-filter.register-filter",
-                "quarkus.oidc-client-filter.register-filter"));
+        test.modifyResourceFile("application.properties", s -> s.replace("#quarkus.resteasy-client-oidc-filter.register-filter",
+                "quarkus.resteasy-client-oidc-filter.register-filter"));
 
         // OidcClient configuration is not complete - Quarkus should start - but 500 returned
         RestAssured.when().get("/frontend/user-before-registering-provider")

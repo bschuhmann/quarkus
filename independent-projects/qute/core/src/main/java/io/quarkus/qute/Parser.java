@@ -1064,9 +1064,11 @@ class Parser implements ParserHelper, ParserDelegate, WithOrigin, ErrorInitializ
                 value = literal.toString();
             } else {
                 throw TemplateException.builder()
-                        .message((literal == null ? "Null" : "Non-literal")
-                                + " value used in bracket notation [{value}] {origin}")
+                        .message((literal == null ? "Null value" : "Non-literal value [{value}]")
+                                + " used in bracket notation in expression \\{{expr}\\}{#if origin.hasNonGeneratedTemplateId??} in{origin}{/if}")
                         .argument("value", value)
+                        .argument("expr", exprValue)
+                        .origin(origin)
                         .build();
             }
         } else {
@@ -1338,6 +1340,10 @@ class Parser implements ParserHelper, ParserDelegate, WithOrigin, ErrorInitializ
 
     private static final BlockNode BLOCK_NODE = new BlockNode();
     static final CommentNode COMMENT_NODE = new CommentNode();
+
+    static boolean isDummyNode(TemplateNode node) {
+        return node == COMMENT_NODE || node == BLOCK_NODE;
+    }
 
     // A dummy node for section blocks, it's only used when removing standalone lines
     private static class BlockNode implements TemplateNode {

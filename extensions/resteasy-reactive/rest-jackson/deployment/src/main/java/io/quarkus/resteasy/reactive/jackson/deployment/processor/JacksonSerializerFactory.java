@@ -6,28 +6,17 @@ import static org.objectweb.asm.Opcodes.ACC_STATIC;
 
 import java.io.IOException;
 import java.lang.reflect.Modifier;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
-import org.jboss.jandex.AnnotationInstance;
-import org.jboss.jandex.AnnotationValue;
-import org.jboss.jandex.ArrayType;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
-import org.jboss.jandex.ParameterizedType;
-import org.jboss.jandex.Type;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.SerializableString;
 import com.fasterxml.jackson.core.io.SerializedString;
@@ -48,7 +37,6 @@ import io.quarkus.gizmo.FieldDescriptor;
 import io.quarkus.gizmo.MethodCreator;
 import io.quarkus.gizmo.MethodDescriptor;
 import io.quarkus.gizmo.ResultHandle;
-import io.quarkus.resteasy.reactive.jackson.SecureField;
 import io.quarkus.resteasy.reactive.jackson.runtime.mappers.JacksonMapperUtil;
 
 /**
@@ -131,39 +119,28 @@ import io.quarkus.resteasy.reactive.jackson.runtime.mappers.JacksonMapperUtil;
  * factory enqueues a code generation also for that type. The same is valid for both arrays of that type, like
  * {@code Address[]}, and collections, like {@code List&lt;Address&gt}.
  */
-public class JacksonSerializerFactory {
+public class JacksonSerializerFactory extends JacksonCodeGenerator {
 
+    private static final String CLASS_NAME_SUFFIX = "$quarkusjacksonserializer";
     private static final String SUPER_CLASS_NAME = StdSerializer.class.getName();
     private static final String JSON_GEN_CLASS_NAME = JsonGenerator.class.getName();
     private static final String SER_STRINGS_CLASS_NAME = "SerializedStrings$quarkusjacksonserializer";
 
-    private final BuildProducer<GeneratedClassBuildItem> generatedClassBuildItemBuildProducer;
-    private final IndexView jandexIndex;
-
-    private final Set<String> generatedClassNames = new HashSet<>();
     private final Map<String, Set<String>> generatedFields = new HashMap<>();
-    private final Deque<ClassInfo> toBeGenerated = new ArrayDeque<>();
 
     public JacksonSerializerFactory(BuildProducer<GeneratedClassBuildItem> generatedClassBuildItemBuildProducer,
             IndexView jandexIndex) {
-        this.generatedClassBuildItemBuildProducer = generatedClassBuildItemBuildProducer;
-        this.jandexIndex = jandexIndex;
+        super(generatedClassBuildItemBuildProducer, jandexIndex);
     }
 
+    @Override
     public Collection<String> create(Collection<ClassInfo> classInfos) {
-        Set<String> createdClasses = new HashSet<>();
-        toBeGenerated.addAll(classInfos);
-
-        while (!toBeGenerated.isEmpty()) {
-            create(toBeGenerated.removeFirst()).ifPresent(createdClasses::add);
-        }
-
+        Collection<String> createdClasses = super.create(classInfos);
         createFieldNamesClass();
-
         return createdClasses;
     }
 
-    public void createFieldNamesClass() {
+    private void createFieldNamesClass() {
         if (generatedFields.isEmpty()) {
             return;
         }
@@ -190,33 +167,18 @@ public class JacksonSerializerFactory {
         }
     }
 
-    private Optional<String> create(ClassInfo classInfo) {
-        String beanClassName = classInfo.name().toString();
-        if (vetoedClassName(beanClassName) || !generatedClassNames.add(beanClassName)) {
-            return Optional.empty();
-        }
-
-        String generatedClassName = beanClassName + "$quarkusjacksonserializer";
-
-        try (ClassCreator classCreator = new ClassCreator(
-                new GeneratedClassGizmoAdaptor(generatedClassBuildItemBuildProducer, true), generatedClassName, null,
-                SUPER_CLASS_NAME)) {
-
-            createConstructor(classCreator, beanClassName);
-            boolean valid = createSerializeMethod(classInfo, classCreator, beanClassName);
-            return valid ? Optional.of(generatedClassName) : Optional.empty();
-        }
+    @Override
+    protected String getSuperClassName() {
+        return SUPER_CLASS_NAME;
     }
 
-    private void createConstructor(ClassCreator classCreator, String beanClassName) {
-        MethodCreator constructor = classCreator.getConstructorCreator(new String[0]);
-        constructor.invokeSpecialMethod(
-                MethodDescriptor.ofConstructor(SUPER_CLASS_NAME, "java.lang.Class"),
-                constructor.getThis(), constructor.loadClass(beanClassName));
-        constructor.returnVoid();
+    @Override
+    protected String getClassSuffix() {
+        return CLASS_NAME_SUFFIX;
     }
 
-    private boolean createSerializeMethod(ClassInfo classInfo, ClassCreator classCreator, String beanClassName) {
+    @Override
+    protected boolean createSerializationMethod(ClassInfo classInfo, ClassCreator classCreator, String beanClassName) {
         MethodCreator serialize = classCreator.getMethodCreator("serialize", "void", "java.lang.Object", JSON_GEN_CLASS_NAME,
                 "com.fasterxml.jackson.databind.SerializerProvider")
                 .setModifiers(ACC_PUBLIC)
@@ -229,23 +191,20 @@ public class JacksonSerializerFactory {
     private boolean serializeObject(ClassInfo classInfo, ClassCreator classCreator, String beanClassName,
             MethodCreator serialize) {
         Set<String> serializedFields = new HashSet<>();
-        ResultHandle valueHandle = serialize.checkCast(serialize.getMethodParam(0), beanClassName);
-        ResultHandle jsonGenerator = serialize.getMethodParam(1);
-        ResultHandle serializerProvider = serialize.getMethodParam(2);
+        SerializationContext ctx = new SerializationContext(serialize, beanClassName);
 
         // jsonGenerator.writeStartObject();
         MethodDescriptor writeStartObject = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, "writeStartObject", "void");
-        serialize.invokeVirtualMethod(writeStartObject, jsonGenerator);
+        serialize.invokeVirtualMethod(writeStartObject, ctx.jsonGenerator);
 
-        boolean valid = serializeObjectData(classInfo, classCreator, serialize, valueHandle, jsonGenerator, serializerProvider,
-                serializedFields);
+        boolean valid = serializeObjectData(classInfo, classCreator, serialize, ctx, serializedFields);
 
         // jsonGenerator.writeEndObject();
         MethodDescriptor writeEndObject = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, "writeEndObject", "void");
-        serialize.invokeVirtualMethod(writeEndObject, jsonGenerator);
+        serialize.invokeVirtualMethod(writeEndObject, ctx.jsonGenerator);
 
         if (serializedFields.isEmpty()) {
-            throwExceptionForEmptyBean(beanClassName, serialize, jsonGenerator);
+            throwExceptionForEmptyBean(beanClassName, serialize, ctx.jsonGenerator);
         }
 
         classCreator.getMethodCreator("<clinit>", void.class).setModifiers(ACC_STATIC).returnVoid();
@@ -254,131 +213,111 @@ public class JacksonSerializerFactory {
     }
 
     private boolean serializeObjectData(ClassInfo classInfo, ClassCreator classCreator, MethodCreator serialize,
-            ResultHandle valueHandle, ResultHandle jsonGenerator, ResultHandle serializerProvider,
-            Set<String> serializedFields) {
-        return serializeFields(classInfo, classCreator, serialize, valueHandle, jsonGenerator, serializerProvider,
-                serializedFields) &&
-                serializeMethods(classInfo, classCreator, serialize, valueHandle, jsonGenerator, serializerProvider,
-                        serializedFields);
+            SerializationContext ctx, Set<String> serializedFields) {
+        return serializeFields(classInfo, classCreator, serialize, ctx, serializedFields) &&
+                serializeMethods(classInfo, classCreator, serialize, ctx, serializedFields);
     }
 
     private boolean serializeFields(ClassInfo classInfo, ClassCreator classCreator, MethodCreator serialize,
-            ResultHandle valueHandle,
-            ResultHandle jsonGenerator, ResultHandle serializerProvider, Set<String> serializedFields) {
+            SerializationContext ctx, Set<String> serializedFields) {
         for (FieldInfo fieldInfo : classFields(classInfo)) {
-            if (Modifier.isStatic(fieldInfo.flags())) {
-                continue;
-            }
             FieldSpecs fieldSpecs = fieldSpecsFromField(classInfo, fieldInfo);
-            if (fieldSpecs != null) {
-                if (serializedFields.add(fieldSpecs.fieldName)) {
-                    if (fieldSpecs.hasUnknownAnnotation()) {
-                        return false;
-                    }
-                    writeField(classInfo, fieldSpecs, writeFieldBranch(classCreator, serialize, fieldSpecs), jsonGenerator,
-                            serializerProvider, valueHandle);
+            if (fieldSpecs != null && serializedFields.add(fieldSpecs.fieldName)) {
+                if (fieldSpecs.hasUnknownAnnotation()) {
+                    return false;
                 }
+                writeField(classInfo, fieldSpecs, writeFieldBranch(classCreator, serialize, fieldSpecs), ctx);
             }
         }
         return true;
     }
 
     private boolean serializeMethods(ClassInfo classInfo, ClassCreator classCreator, MethodCreator serialize,
-            ResultHandle valueHandle,
-            ResultHandle jsonGenerator, ResultHandle serializerProvider, Set<String> serializedFields) {
+            SerializationContext ctx, Set<String> serializedFields) {
         for (MethodInfo methodInfo : classMethods(classInfo)) {
-            if (Modifier.isStatic(methodInfo.flags())) {
-                continue;
-            }
             FieldSpecs fieldSpecs = fieldSpecsFromMethod(methodInfo);
             if (fieldSpecs != null && serializedFields.add(fieldSpecs.fieldName)) {
                 if (fieldSpecs.hasUnknownAnnotation()) {
                     return false;
                 }
-                writeField(classInfo, fieldSpecs, serialize, jsonGenerator, serializerProvider, valueHandle);
+                writeField(classInfo, fieldSpecs, serialize, ctx);
             }
         }
         return true;
     }
 
-    private void writeField(ClassInfo classInfo, FieldSpecs fieldSpecs, BytecodeCreator bytecode, ResultHandle jsonGenerator,
-            ResultHandle serializerProvider, ResultHandle valueHandle) {
+    private FieldSpecs fieldSpecsFromMethod(MethodInfo methodInfo) {
+        return !Modifier.isStatic(methodInfo.flags()) && isGetterMethod(methodInfo) ? new FieldSpecs(methodInfo) : null;
+    }
+
+    private boolean isGetterMethod(MethodInfo methodInfo) {
+        String methodName = methodInfo.name();
+        return Modifier.isPublic(methodInfo.flags()) && !Modifier.isStatic(methodInfo.flags())
+                && methodInfo.parametersCount() == 0
+                && (methodName.startsWith("get") || methodName.startsWith("is"));
+    }
+
+    private void writeField(ClassInfo classInfo, FieldSpecs fieldSpecs, BytecodeCreator bytecode, SerializationContext ctx) {
         String pkgName = classInfo.name().packagePrefixName().toString();
         generatedFields.computeIfAbsent(pkgName, pkg -> new HashSet<>()).add(fieldSpecs.jsonName);
+
+        ResultHandle arg = fieldSpecs.toValueReaderHandle(bytecode, ctx.valueHandle);
+        bytecode = checkInclude(bytecode, ctx, arg);
+
+        String typeName = fieldSpecs.fieldType.name().toString();
+        String primitiveMethodName = writeMethodForPrimitiveFields(typeName);
+
+        if (primitiveMethodName != null) {
+            BytecodeCreator primitiveBytecode = isBoxedPrimitive(typeName) ? bytecode.ifNotNull(arg).trueBranch() : bytecode;
+            writeFieldName(fieldSpecs, primitiveBytecode, ctx.jsonGenerator, pkgName);
+            MethodDescriptor primitiveWriter = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, primitiveMethodName, "void",
+                    fieldSpecs.writtenType());
+            primitiveBytecode.invokeVirtualMethod(primitiveWriter, ctx.jsonGenerator, arg);
+            return;
+        }
+
+        registerTypeToBeGenerated(fieldSpecs.fieldType, typeName);
+
+        writeFieldName(fieldSpecs, bytecode, ctx.jsonGenerator, pkgName);
+        MethodDescriptor writeMethod = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, "writePOJO",
+                void.class, Object.class);
+        bytecode.invokeVirtualMethod(writeMethod, ctx.jsonGenerator, arg);
+    }
+
+    private static BytecodeCreator checkInclude(BytecodeCreator bytecode, SerializationContext ctx, ResultHandle arg) {
+        MethodDescriptor shouldSerialize = MethodDescriptor.ofMethod(JacksonMapperUtil.SerializationInclude.class,
+                "shouldSerialize",
+                boolean.class, Object.class);
+        ResultHandle included = bytecode.invokeVirtualMethod(shouldSerialize, ctx.includeHandle, arg);
+        return bytecode.ifTrue(included).trueBranch();
+    }
+
+    private static void writeFieldName(FieldSpecs fieldSpecs, BytecodeCreator bytecode, ResultHandle jsonGenerator,
+            String pkgName) {
         MethodDescriptor writeFieldName = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, "writeFieldName", void.class,
                 SerializableString.class);
         ResultHandle serStringHandle = bytecode.readStaticField(
                 FieldDescriptor.of(pkgName + "." + SER_STRINGS_CLASS_NAME, fieldSpecs.jsonName,
                         SerializedString.class.getName()));
         bytecode.invokeVirtualMethod(writeFieldName, jsonGenerator, serStringHandle);
-
-        ResultHandle arg = fieldSpecs.toValueReaderHandle(bytecode, valueHandle);
-        String typeName = fieldSpecs.fieldType.name().toString();
-        String primitiveMethodName = writeMethodForPrimitiveFields(typeName);
-
-        if (primitiveMethodName != null) {
-            MethodDescriptor primitiveWriter = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, primitiveMethodName, "void",
-                    typeName);
-            bytecode.invokeVirtualMethod(primitiveWriter, jsonGenerator, arg);
-            return;
-        }
-
-        registerTypeToBeGenerated(fieldSpecs.fieldType, typeName);
-
-        MethodDescriptor writeMethod = MethodDescriptor.ofMethod(JSON_GEN_CLASS_NAME, "writePOJO",
-                void.class, Object.class);
-        bytecode.invokeVirtualMethod(writeMethod, jsonGenerator, arg);
-    }
-
-    private void registerTypeToBeGenerated(Type fieldType, String typeName) {
-        if (!isCollectionType(fieldType, typeName)) {
-            registerTypeToBeGenerated(typeName);
-        }
-    }
-
-    private boolean isCollectionType(Type fieldType, String typeName) {
-        if (fieldType instanceof ArrayType aType) {
-            registerTypeToBeGenerated(aType.constituent());
-            return true;
-        }
-        if (fieldType instanceof ParameterizedType pType) {
-            if (pType.arguments().size() == 1 && (typeName.equals("java.util.List") ||
-                    typeName.equals("java.util.Collection") || typeName.equals("java.util.Set") ||
-                    typeName.equals("java.lang.Iterable"))) {
-                registerTypeToBeGenerated(pType.arguments().get(0));
-                return true;
-            }
-            if (pType.arguments().size() == 2 && typeName.equals("java.util.Map")) {
-                registerTypeToBeGenerated(pType.arguments().get(1));
-                registerTypeToBeGenerated(pType.arguments().get(1));
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void registerTypeToBeGenerated(Type type) {
-        registerTypeToBeGenerated(type.name().toString());
-    }
-
-    private void registerTypeToBeGenerated(String typeName) {
-        if (!vetoedClassName(typeName)) {
-            ClassInfo classInfo = jandexIndex.getClassByName(typeName);
-            if (classInfo != null && !classInfo.isEnum()) {
-                toBeGenerated.add(classInfo);
-            }
-        }
     }
 
     private String writeMethodForPrimitiveFields(String typeName) {
         return switch (typeName) {
-            case "java.lang.String" -> "writeString";
+            case "java.lang.String", "char", "java.lang.Character" -> "writeString";
             case "short", "java.lang.Short", "int", "java.lang.Integer", "long", "java.lang.Long", "float",
                     "java.lang.Float", "double", "java.lang.Double" ->
                 "writeNumber";
             case "boolean", "java.lang.Boolean" -> "writeBoolean";
             default -> null;
         };
+    }
+
+    private boolean isBoxedPrimitive(String typeName) {
+        return "java.lang.Character".equals(typeName) || "java.lang.Short".equals(typeName)
+                || "java.lang.Integer".equals(typeName) || "java.lang.Long".equals(typeName)
+                || "java.lang.Float".equals(typeName) || "java.lang.Double".equals(typeName)
+                || "java.lang.Boolean".equals(typeName);
     }
 
     private BytecodeCreator writeFieldBranch(ClassCreator classCreator, MethodCreator serialize, FieldSpecs fieldSpecs) {
@@ -406,52 +345,6 @@ public class JacksonSerializerFactory {
             return serialize.ifTrue(included).trueBranch();
         }
         return serialize;
-    }
-
-    private Collection<FieldInfo> classFields(ClassInfo classInfo) {
-        Collection<FieldInfo> fields = new ArrayList<>();
-        classFields(classInfo, fields);
-        return fields;
-    }
-
-    private void classFields(ClassInfo classInfo, Collection<FieldInfo> fields) {
-        fields.addAll(classInfo.fields());
-        onSuperClass(classInfo, superClassInfo -> {
-            classFields(superClassInfo, fields);
-            return null;
-        });
-    }
-
-    private Collection<MethodInfo> classMethods(ClassInfo classInfo) {
-        Collection<MethodInfo> methods = new ArrayList<>();
-        classMethods(classInfo, methods);
-        return methods;
-    }
-
-    private void classMethods(ClassInfo classInfo, Collection<MethodInfo> methods) {
-        methods.addAll(classInfo.methods());
-        onSuperClass(classInfo, superClassInfo -> {
-            classMethods(superClassInfo, methods);
-            return null;
-        });
-    }
-
-    private <T> T onSuperClass(ClassInfo classInfo, Function<ClassInfo, T> f) {
-        Type superType = classInfo.superClassType();
-        if (superType != null && !vetoedClassName(superType.name().toString())) {
-            ClassInfo superClassInfo = jandexIndex.getClassByName(superType.name());
-            if (superClassInfo != null) {
-                return f.apply(superClassInfo);
-            }
-        }
-        return null;
-    }
-
-    private boolean isGetterMethod(MethodInfo methodInfo) {
-        String methodName = methodInfo.name();
-        return Modifier.isPublic(methodInfo.flags()) && !Modifier.isStatic(methodInfo.flags())
-                && methodInfo.parametersCount() == 0
-                && (methodName.startsWith("get") || methodName.startsWith("is"));
     }
 
     private void throwExceptionForEmptyBean(String beanClassName, MethodCreator serialize, ResultHandle jsonGenerator) {
@@ -484,123 +377,21 @@ public class JacksonSerializerFactory {
         isFailEnabledBranch.throwException(invalidException);
     }
 
-    private MethodInfo getterMethodInfo(ClassInfo classInfo, FieldInfo fieldInfo) {
-        MethodInfo namedAccessor = findMethod(classInfo, fieldInfo.name());
-        if (namedAccessor != null) {
-            return namedAccessor;
-        }
-        String methodName = (isBooleanType(fieldInfo.type().name().toString()) ? "is" : "get") + ucFirst(fieldInfo.name());
-        return findMethod(classInfo, methodName);
-    }
-
-    private MethodInfo findMethod(ClassInfo classInfo, String methodName, Type... parameters) {
-        MethodInfo method = classInfo.method(methodName, parameters);
-        return method != null ? method
-                : onSuperClass(classInfo, superClassInfo -> findMethod(superClassInfo, methodName, parameters));
-    }
-
-    private static String ucFirst(String name) {
-        return name.substring(0, 1).toUpperCase() + name.substring(1);
-    }
-
-    private static boolean isBooleanType(String type) {
-        return type.equals("boolean") || type.equals("java.lang.Boolean");
-    }
-
-    private static boolean vetoedClassName(String className) {
-        return className.startsWith("java.") || className.startsWith("jakarta.") || className.startsWith("io.vertx.core.json.");
-    }
-
-    private FieldSpecs fieldSpecsFromField(ClassInfo classInfo, FieldInfo fieldInfo) {
-        MethodInfo getterMethodInfo = getterMethodInfo(classInfo, fieldInfo);
-        if (getterMethodInfo != null) {
-            return new FieldSpecs(fieldInfo, getterMethodInfo);
-        }
-        if (Modifier.isPublic(fieldInfo.flags())) {
-            return new FieldSpecs(fieldInfo);
-        }
-        return null;
-    }
-
-    private FieldSpecs fieldSpecsFromMethod(MethodInfo methodInfo) {
-        return isGetterMethod(methodInfo) ? new FieldSpecs(methodInfo) : null;
-    }
-
-    private static class FieldSpecs {
-
-        private final String fieldName;
-        private final String jsonName;
-        private final Type fieldType;
-        private final Map<String, AnnotationInstance> annotations = new HashMap<>();
-
-        private MethodInfo methodInfo;
-        private FieldInfo fieldInfo;
-
-        FieldSpecs(FieldInfo fieldInfo) {
-            this(fieldInfo, null);
+    private record SerializationContext(ResultHandle valueHandle, ResultHandle jsonGenerator, ResultHandle serializerProvider,
+            ResultHandle includeHandle) {
+        SerializationContext(MethodCreator serialize, String beanClassName) {
+            this(valueHandle(serialize, beanClassName), serialize.getMethodParam(1), serialize.getMethodParam(2),
+                    includeHandle(serialize));
         }
 
-        FieldSpecs(MethodInfo methodInfo) {
-            this(null, methodInfo);
+        private static ResultHandle valueHandle(MethodCreator serialize, String beanClassName) {
+            return serialize.checkCast(serialize.getMethodParam(0), beanClassName);
         }
 
-        FieldSpecs(FieldInfo fieldInfo, MethodInfo methodInfo) {
-            if (fieldInfo != null) {
-                this.fieldInfo = fieldInfo;
-                fieldInfo.annotations().forEach(a -> annotations.put(a.name().toString(), a));
-            }
-            if (methodInfo != null) {
-                this.methodInfo = methodInfo;
-                methodInfo.annotations().forEach(a -> annotations.put(a.name().toString(), a));
-            }
-            this.fieldType = fieldType();
-            this.fieldName = fieldName();
-            this.jsonName = jsonName();
-        }
-
-        private Type fieldType() {
-            return fieldInfo != null ? fieldInfo.type() : methodInfo.returnType();
-        }
-
-        private String jsonName() {
-            AnnotationInstance jsonProperty = annotations.get(JsonProperty.class.getName());
-            if (jsonProperty != null) {
-                AnnotationValue value = jsonProperty.value();
-                if (value != null && !value.asString().isEmpty()) {
-                    return value.asString();
-                }
-            }
-            return fieldName();
-        }
-
-        private String fieldName() {
-            return fieldInfo != null ? fieldInfo.name() : fieldNameFromMethod(methodInfo);
-        }
-
-        private String fieldNameFromMethod(MethodInfo methodInfo) {
-            String methodName = methodInfo.name();
-            return isBooleanType(methodInfo.returnType().toString())
-                    ? methodName.substring(2, 3).toLowerCase() + methodName.substring(3)
-                    : methodName.substring(3, 4).toLowerCase() + methodName.substring(4);
-        }
-
-        boolean hasUnknownAnnotation() {
-            return annotations.keySet().stream()
-                    .anyMatch(ann -> ann.startsWith("com.fasterxml.jackson.") && !ann.equals(JsonProperty.class.getName()));
-        }
-
-        ResultHandle toValueReaderHandle(BytecodeCreator bytecode, ResultHandle valueHandle) {
-            return methodInfo != null ? bytecode.invokeVirtualMethod(MethodDescriptor.of(methodInfo), valueHandle)
-                    : bytecode.readInstanceField(FieldDescriptor.of(fieldInfo), valueHandle);
-        }
-
-        private String[] rolesAllowed() {
-            AnnotationInstance secureField = annotations.get(SecureField.class.getName());
-            if (secureField != null) {
-                AnnotationValue rolesAllowed = secureField.value("rolesAllowed");
-                return rolesAllowed != null ? rolesAllowed.asStringArray() : null;
-            }
-            return null;
+        private static ResultHandle includeHandle(MethodCreator serialize) {
+            MethodDescriptor decodeInclude = MethodDescriptor.ofMethod(JacksonMapperUtil.SerializationInclude.class, "decode",
+                    JacksonMapperUtil.SerializationInclude.class, Object.class, SerializerProvider.class);
+            return serialize.invokeStaticMethod(decodeInclude, serialize.getMethodParam(0), serialize.getMethodParam(2));
         }
     }
 }

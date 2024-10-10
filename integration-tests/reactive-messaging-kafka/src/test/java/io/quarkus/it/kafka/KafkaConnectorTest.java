@@ -4,6 +4,7 @@ import static io.restassured.RestAssured.get;
 import static io.restassured.RestAssured.given;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 
 import io.quarkus.arc.Arc;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.DisabledOnIntegrationTest;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.kafka.KafkaCompanionResource;
@@ -26,7 +27,7 @@ import io.restassured.response.Response;
 import io.smallrye.reactive.messaging.kafka.commit.ProcessingState;
 
 @QuarkusTest
-@WithTestResource(value = KafkaCompanionResource.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KafkaCompanionResource.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class KafkaConnectorTest {
 
@@ -121,7 +122,9 @@ public class KafkaConnectorTest {
                 .body(containsString("quarkus_messaging_message_duration_seconds_sum"))
                 .body(containsString("quarkus_messaging_message_duration_seconds_count"))
                 .body(containsString("quarkus_messaging_message_count_total"))
-                .body(containsString("quarkus_messaging_message_acks_total"));
+                .body(containsString("quarkus_messaging_message_acks_total"))
+                .body(containsString("kafka_app_info_start_time_ms"))
+                .body(not(containsString("kafka_version=\"unknown\"")));
     }
 
 }

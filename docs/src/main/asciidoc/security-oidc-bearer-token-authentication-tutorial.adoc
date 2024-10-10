@@ -217,7 +217,7 @@ For more information, see the <<bearer-token-tutorial-keycloak-dev-mode>> sectio
 docker run --name keycloak -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin -p 8180:8080 quay.io/keycloak/keycloak:{keycloak.version} start-dev
 ----
 ====
-* Where the `keycloak.version` is set to version `25.0.4` or later.
+* Where the `keycloak.version` is set to version `25.0.6` or later.
 . You can access your Keycloak server at http://localhost:8180[localhost:8180].
 . To access the Keycloak Administration console, log in as the `admin` user by using the following login credentials:
 
@@ -315,6 +315,21 @@ export access_token=$(\
     --user backend-service:secret \
     -H 'content-type: application/x-www-form-urlencoded' \
     -d 'username=alice&password=alice&grant_type=password' | jq --raw-output '.access_token' \
+ )
+----
+====
+
+[NOTE]
+====
+When the `quarkus.oidc.authentication.user-info-required` property is set to `true` to require that an access token is used to request `UserInfo`, you must add a `scope=openid` query parameter to the token grant request command, for example:
+
+[source,bash]
+----
+export access_token=$(\
+    curl --insecure -X POST http://localhost:8180/realms/quarkus/protocol/openid-connect/token \
+    --user backend-service:secret \
+    -H 'content-type: application/x-www-form-urlencoded' \
+    -d 'username=alice&password=alice&grant_type=password&scope=openid' | jq --raw-output '.access_token' \
  )
 ----
 ====

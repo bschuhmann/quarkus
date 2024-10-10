@@ -35,7 +35,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import io.quarkus.oidc.runtime.OidcUtils;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.keycloak.client.KeycloakTestClient;
 import io.restassured.RestAssured;
@@ -45,7 +45,7 @@ import io.vertx.core.json.JsonObject;
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
  */
 @QuarkusTest
-@WithTestResource(value = KeycloakRealmResourceManager.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KeycloakRealmResourceManager.class)
 public class CodeFlowTest {
 
     KeycloakTestClient client = new KeycloakTestClient();
@@ -126,6 +126,7 @@ public class CodeFlowTest {
             // response from Quarkus
             webResponse = webClient.loadWebResponse(new WebRequest(endpointLocationUri.toURL()));
             assertEquals(401, webResponse.getStatusCode());
+            assertEquals("", webResponse.getContentAsString(), "The reason behind 401 can only be returned in devmode");
             webClient.getCookieManager().clearCookies();
         }
     }
@@ -1082,6 +1083,29 @@ public class CodeFlowTest {
     }
 
     @Test
+    public void testInvalidPath() throws IOException {
+        try (final WebClient webClient = createWebClient()) {
+            HtmlPage page = webClient.getPage("http://localhost:8081/index.html;/checktterer");
+            assertEquals("/index.html;/checktterer", getStateCookieSavedPath(webClient, null));
+
+            assertEquals("Sign in to quarkus", page.getTitleText());
+
+            HtmlForm loginForm = page.getForms().get(0);
+
+            loginForm.getInputByName("username").setValueAttribute("alice");
+            loginForm.getInputByName("password").setValueAttribute("alice");
+
+            try {
+                page = loginForm.getInputByName("login").click();
+            } catch (FailingHttpStatusCodeException ex) {
+                assertEquals(404, ex.getStatusCode());
+            }
+
+            webClient.getCookieManager().clearCookies();
+        }
+    }
+
+    @Test
     public void testAccessAndRefreshTokenInjection() throws IOException {
         try (final WebClient webClient = createWebClient()) {
             HtmlPage page = webClient.getPage("http://localhost:8081/index.html");
@@ -1386,8 +1410,8 @@ public class CodeFlowTest {
     @Test
     public void testAccessAndRefreshTokenInjectionWithQuery() throws Exception {
         try (final WebClient webClient = createWebClient()) {
-            HtmlPage page = webClient.getPage("http://localhost:8081/web-app/refresh-query?a=aValue");
-            assertEquals("/web-app/refresh-query?a=aValue", getStateCookieSavedPath(webClient, null));
+            HtmlPage page = webClient.getPage("http://localhost:8081/web-app/refresh-query?a=aValue%");
+            assertEquals("/web-app/refresh-query?a=aValue%25", getStateCookieSavedPath(webClient, null));
 
             assertEquals("Sign in to quarkus", page.getTitleText());
 
@@ -1398,7 +1422,8 @@ public class CodeFlowTest {
 
             page = loginForm.getInputByName("login").click();
 
-            assertEquals("RT injected:aValue", page.getBody().asNormalizedText());
+            // Query parameters are decoded by the time they reach the JAX-RS endpoint
+            assertEquals("RT injected:aValue%", page.getBody().asNormalizedText());
             webClient.getCookieManager().clearCookies();
         }
     }
@@ -1561,12 +1586,17 @@ public class CodeFlowTest {
 
     private String getStateCookieSavedPath(WebClient webClient, String tenantId) {
         String[] parts = getStateCookie(webClient, tenantId).getValue().split("\\|");
-        return parts.length == 2 ? parts[1] : null;
+        return parts.length == 2 ? getSavedPathFromJson(parts[1]) : null;
     }
 
     private String getStateCookieSavedPath(Cookie stateCookie) {
         String[] parts = stateCookie.getValue().split("\\|");
-        return parts.length == 2 ? parts[1] : null;
+        return parts.length == 2 ? getSavedPathFromJson(parts[1]) : null;
+    }
+
+    private String getSavedPathFromJson(String value) {
+        JsonObject json = new JsonObject(OidcUtils.base64UrlDecode(value));
+        return json.getString(OidcUtils.STATE_COOKIE_RESTORE_PATH);
     }
 
     private Cookie getSessionCookie(WebClient webClient, String tenantId) {

@@ -11,6 +11,10 @@ import java.util.jar.JarFile;
 import io.smallrye.common.io.jar.JarFiles;
 
 public class JarFileReference {
+
+    // This is required to perform cleanup of JarResource::jarFileReference without breaking racy updates
+    private final CompletableFuture<JarFileReference> completedFuture;
+
     // Guarded by an atomic reader counter that emulate the behaviour of a read/write lock.
     // To enable virtual threads compatibility and avoid pinning it is not possible to use an explicit read/write lock
     // because the jarFile access may happen inside a native call (for example triggered by the RunnerClassLoader)
@@ -22,8 +26,10 @@ public class JarFileReference {
     // The JarFileReference is created as already acquired and that's why the referenceCounter starts from 2
     private final AtomicInteger referenceCounter = new AtomicInteger(2);
 
-    private JarFileReference(JarFile jarFile) {
+    private JarFileReference(JarFile jarFile, CompletableFuture<JarFileReference> completedFuture) {
         this.jarFile = jarFile;
+        this.completedFuture = completedFuture;
+        this.completedFuture.complete(this);
     }
 
     /**
@@ -34,14 +40,25 @@ public class JarFileReference {
      */
     private boolean acquire() {
         while (true) {
-            int count = referenceCounter.get();
+            final int count = referenceCounter.get();
+            // acquire can increase the counter absolute value, only if it's not 0
             if (count == 0) {
                 return false;
             }
-            if (referenceCounter.compareAndSet(count, count + 1)) {
+            if (referenceCounter.compareAndSet(count, changeReferenceCount(count, 1))) {
                 return true;
             }
         }
+    }
+
+    /**
+     * Change the absolute value of the provided reference count of the given delta, that can only be 1 when the reference is
+     * acquired by a new reader or -1 when the reader releases the reference or the reference itself is marked for closing.
+     * A negative reference count means that this reference has been marked for closing.
+     */
+    private static int changeReferenceCount(final int count, int delta) {
+        assert count != 0;
+        return count < 0 ? count - delta : count + delta;
     }
 
     /**
@@ -52,19 +69,17 @@ public class JarFileReference {
      */
     private boolean release(JarResource jarResource) {
         while (true) {
-            int count = referenceCounter.get();
-            if (count <= 0) {
-                throw new IllegalStateException(
-                        "The reference counter cannot be negative, found: " + (referenceCounter.get() - 1));
+            final int count = referenceCounter.get();
+            // Both 1 and 0 are invalid states, because:
+            // - count = 1 means that we're trying to release a jarFile not yet marked for closing
+            // - count = 0 means that the jarFile has been already closed
+            if (count == 1 || count == 0) {
+                throw new IllegalStateException("Duplicate release? The reference counter cannot be " + count);
             }
-            if (referenceCounter.compareAndSet(count, count - 1)) {
-                if (count == 1) {
-                    jarResource.jarFileReference.set(null);
-                    try {
-                        jarFile.close();
-                    } catch (IOException e) {
-                        // ignore
-                    }
+            if (referenceCounter.compareAndSet(count, changeReferenceCount(count, -1))) {
+                if (count == -1) {
+                    // The reference has been already marked to be closed (the counter is negative) and this is the last reader releasing it
+                    closeJarResources(jarResource);
                     return true;
                 }
                 return false;
@@ -72,13 +87,36 @@ public class JarFileReference {
         }
     }
 
+    private void closeJarResources(JarResource jarResource) {
+        // we need to make sure we're not deleting others state
+        jarResource.jarFileReference.compareAndSet(completedFuture, null);
+        try {
+            jarFile.close();
+        } catch (IOException e) {
+            // ignore
+        }
+    }
+
     /**
-     * Ask to close this reference.
+     * Mark this jar reference as ready to be closed.
      * If there are no readers currently accessing the jarFile also close it, otherwise defer the closing when the last reader
      * will leave.
      */
-    void close(JarResource jarResource) {
-        release(jarResource);
+    void markForClosing(JarResource jarResource) {
+        while (true) {
+            int count = referenceCounter.get();
+            if (count <= 0) {
+                // we're relaxed in case of multiple close requests
+                return;
+            }
+            // close must change the value into a negative one or zeroing
+            // the reference counter is turned into a negative value to indicate (in an idempotent way) that the resource has been marked to be closed.
+            if (referenceCounter.compareAndSet(count, changeReferenceCount(-count, -1))) {
+                if (count == 1) {
+                    closeJarResources(jarResource);
+                }
+            }
+        }
     }
 
     @FunctionalInterface
@@ -90,11 +128,14 @@ public class JarFileReference {
 
         // Happy path: the jar reference already exists and it's ready to be used
         final var localJarFileRefFuture = jarResource.jarFileReference.get();
+        boolean closingLocalJarFileRef = false;
         if (localJarFileRefFuture != null && localJarFileRefFuture.isDone()) {
             JarFileReference jarFileReference = localJarFileRefFuture.join();
             if (jarFileReference.acquire()) {
                 return consumeSharedJarFile(jarFileReference, jarResource, resource, fileConsumer);
             }
+            // The acquire failure implies that the reference is already marked to be closed.
+            closingLocalJarFileRef = true;
         }
 
         // There's no valid jar reference, so load a new one
@@ -109,7 +150,9 @@ public class JarFileReference {
         // Virtual threads needs to load the jarfile synchronously to avoid blocking. This means that eventually
         // multiple threads could load the same jarfile in parallel and this duplication has to be reconciled
         final var newJarFileRef = syncLoadAcquiredJarFile(jarResource);
-        if (jarResource.jarFileReference.compareAndSet(localJarFileRefFuture, newJarFileRef) ||
+        // We can help an in progress close to get rid of the previous jarFileReference, because
+        // JarFileReference::silentCloseJarResources verify first if this hasn't changed in the meantime
+        if ((closingLocalJarFileRef && jarResource.jarFileReference.compareAndSet(localJarFileRefFuture, newJarFileRef)) ||
                 jarResource.jarFileReference.compareAndSet(null, newJarFileRef)) {
             // The new file reference has been successfully published and can be used by the current and other threads
             // The join() cannot be blocking here since the CompletableFuture has been created already completed
@@ -139,15 +182,15 @@ public class JarFileReference {
             assert !closed;
             // Check one last time if the file reference can be published and reused by other threads, otherwise close it
             if (!jarResource.jarFileReference.compareAndSet(null, jarFileReferenceFuture)) {
-                closed = jarFileReference.release(jarResource);
-                assert closed;
+                jarFileReference.markForClosing(jarResource);
             }
         }
     }
 
     private static CompletableFuture<JarFileReference> syncLoadAcquiredJarFile(JarResource jarResource) {
         try {
-            return CompletableFuture.completedFuture(new JarFileReference(JarFiles.create(jarResource.jarPath.toFile())));
+            return new JarFileReference(JarFiles.create(jarResource.jarPath.toFile()),
+                    new CompletableFuture<>()).completedFuture;
         } catch (IOException e) {
             throw new RuntimeException("Failed to open " + jarResource.jarPath, e);
         }
@@ -161,9 +204,7 @@ public class JarFileReference {
         do {
             if (jarResource.jarFileReference.compareAndSet(null, newJarRefFuture)) {
                 try {
-                    JarFileReference newJarRef = new JarFileReference(JarFiles.create(jarResource.jarPath.toFile()));
-                    newJarRefFuture.complete(newJarRef);
-                    return newJarRef;
+                    return new JarFileReference(JarFiles.create(jarResource.jarPath.toFile()), newJarRefFuture);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }

@@ -17,13 +17,13 @@ import org.junit.jupiter.api.Timeout;
 
 import io.quarkus.kafka.streams.runtime.KafkaStreamsTopologyManager;
 import io.quarkus.runtime.Application;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
 import io.restassured.RestAssured;
 
-@WithTestResource(value = KafkaSSLTestResource.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(KafkaSSLTestResource.class)
 @TestProfile(KafkaStreamsStartupFailureTest.NonExistingTopicProfile.class)
 @QuarkusTest
 public class KafkaStreamsStartupFailureTest {
@@ -40,9 +40,9 @@ public class KafkaStreamsStartupFailureTest {
         assertEquals(State.CREATED, kafkaStreams.state());
         RestAssured.get("/q/health/ready").then()
                 .statusCode(HttpStatus.SC_SERVICE_UNAVAILABLE)
-                .body("checks[0].name", CoreMatchers.is("Kafka Streams topics health check"))
-                .body("checks[0].status", CoreMatchers.is("DOWN"))
-                .body("checks[0].data.missing_topics", CoreMatchers.is("nonexisting-topic"));
+                .rootPath("checks.find { it.name ==  'Kafka Streams topics health check' }")
+                .body("status", CoreMatchers.is("DOWN"))
+                .body("data.missing_topics", CoreMatchers.is("nonexisting-topic"));
         assertTrue(Application.currentApplication().isStarted());
 
         Application.currentApplication().stop();

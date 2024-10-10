@@ -15,13 +15,13 @@ import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import io.quarkus.it.rabbitmq.RabbitMQConnectorDynCredsTest.RabbitMQResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
-import io.quarkus.test.common.WithTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.common.mapper.TypeRef;
 
 @QuarkusTest
-@WithTestResource(value = RabbitMQResource.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(RabbitMQResource.class)
 public class RabbitMQConnectorDynCredsTest {
 
     public static class RabbitMQResource implements QuarkusTestResourceLifecycleManager {
@@ -31,7 +31,7 @@ public class RabbitMQConnectorDynCredsTest {
         @Override
         public Map<String, String> start() {
             String username = "tester";
-            String password = RandomStringUtils.random(10);
+            String password = RandomStringUtils.insecure().next(10);
 
             rabbit = new RabbitMQContainer(DockerImageName.parse("rabbitmq:3.12-management"))
                     .withNetwork(Network.SHARED)

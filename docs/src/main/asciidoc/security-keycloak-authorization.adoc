@@ -226,7 +226,7 @@ To start a Keycloak server, use the following Docker command:
 docker run --name keycloak -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin -p 8543:8443 -v "$(pwd)"/config/keycloak-keystore.jks:/etc/keycloak-keystore.jks quay.io/keycloak/keycloak:{keycloak.version} start  --hostname-strict=false --https-key-store-file=/etc/keycloak-keystore.jks
 ----
 
-where `keycloak.version` must be `25.0.4` or later and the `keycloak-keystore.jks` can be found in https://github.com/quarkusio/quarkus-quickstarts/blob/main/security-keycloak-authorization-quickstart/config/keycloak-keystore.jks[quarkus-quickstarts/security-keycloak-authorization-quickstart/config].
+where `keycloak.version` must be `25.0.6` or later and the `keycloak-keystore.jks` can be found in https://github.com/quarkusio/quarkus-quickstarts/blob/main/security-keycloak-authorization-quickstart/config/keycloak-keystore.jks[quarkus-quickstarts/security-keycloak-authorization-quickstart/config].
 
 Try to access your Keycloak server at https://localhost:8543[localhost:8543].
 
@@ -333,6 +333,21 @@ export access_token=$(\
     -d 'username=alice&password=alice&grant_type=password' | jq --raw-output '.access_token' \
  )
 ----
+
+[NOTE]
+====
+When the `quarkus.oidc.authentication.user-info-required` property is set to `true` to require that an access token is used to request `UserInfo`, you must add a `scope=openid` query parameter to the token grant request command, for example:
+
+[source,bash]
+----
+export access_token=$(\
+    curl --insecure -X POST http://localhost:8180/realms/quarkus/protocol/openid-connect/token \
+    --user backend-service:secret \
+    -H 'content-type: application/x-www-form-urlencoded' \
+    -d 'username=alice&password=alice&grant_type=password&scope=openid' | jq --raw-output '.access_token' \
+ )
+----
+====
 
 The preceding example obtains an access token for user `alice`.
 

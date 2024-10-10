@@ -7,6 +7,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.notContaining;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static org.awaitility.Awaitility.given;
@@ -14,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -34,7 +36,9 @@ import java.util.concurrent.TimeUnit;
 import javax.crypto.SecretKey;
 
 import org.awaitility.core.ThrowingRunnable;
+import org.eclipse.microprofile.jwt.Claims;
 import org.hamcrest.Matchers;
+import org.htmlunit.FailingHttpStatusCodeException;
 import org.htmlunit.SilentCssErrorHandler;
 import org.htmlunit.TextPage;
 import org.htmlunit.WebClient;
@@ -52,7 +56,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 
 import io.quarkus.oidc.common.runtime.OidcCommonUtils;
 import io.quarkus.oidc.runtime.OidcUtils;
-import io.quarkus.test.common.WithTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.oidc.server.OidcWireMock;
 import io.quarkus.test.oidc.server.OidcWiremockTestResource;
@@ -65,7 +69,7 @@ import io.smallrye.jwt.util.KeyUtils;
 import io.vertx.core.json.JsonObject;
 
 @QuarkusTest
-@WithTestResource(value = OidcWiremockTestResource.class, restrictToAnnotatedClass = false)
+@QuarkusTestResource(OidcWiremockTestResource.class)
 public class CodeFlowAuthorizationTest {
 
     @OidcWireMock
@@ -102,6 +106,33 @@ public class CodeFlowAuthorizationTest {
             assertEquals("Welcome, clientId: quarkus-web-app", textPage.getContent());
             assertNull(getSessionCookie(webClient, "code-flow"));
             // Clear the post logout cookie
+            webClient.getCookieManager().clearCookies();
+        }
+        clearCache();
+    }
+
+    @Test
+    public void testCodeFlowOpaqueAccessToken() throws IOException {
+        defineCodeFlowOpaqueAccessTokenStub();
+        try (final WebClient webClient = createWebClient()) {
+            webClient.getOptions().setRedirectEnabled(true);
+            HtmlPage page = webClient.getPage("http://localhost:8081/code-flow-opaque-access-token");
+
+            HtmlForm form = page.getFormByName("form");
+            form.getInputByName("username").type("alice");
+            form.getInputByName("password").type("alice");
+
+            TextPage textPage = form.getInputByValue("login").click();
+
+            assertEquals("alice", textPage.getContent());
+
+            try {
+                webClient.getPage("http://localhost:8081/code-flow-opaque-access-token/jwt-access-token");
+                fail("500 status error is expected");
+            } catch (FailingHttpStatusCodeException ex) {
+                assertEquals(500, ex.getStatusCode());
+            }
+
             webClient.getCookieManager().clearCookies();
         }
         clearCache();
@@ -306,7 +337,8 @@ public class CodeFlowAuthorizationTest {
     @Test
     public void testCodeFlowUserInfoCachedInIdToken() throws Exception {
         // Internal ID token, allow in memory cache = false, cacheUserInfoInIdtoken = true
-        defineCodeFlowUserInfoCachedInIdTokenStub();
+        final String refreshJwtToken = generateAlreadyExpiredRefreshToken();
+        defineCodeFlowUserInfoCachedInIdTokenStub(refreshJwtToken);
         try (final WebClient webClient = createWebClient()) {
             webClient.getOptions().setRedirectEnabled(true);
             HtmlPage page = webClient.getPage("http://localhost:8081/code-flow-user-info-github-cached-in-idtoken");
@@ -324,7 +356,8 @@ public class CodeFlowAuthorizationTest {
 
             TextPage textPage = form.getInputByValue("login").click();
 
-            assertEquals("alice:alice:alice, cache size: 0, TenantConfigResolver: false", textPage.getContent());
+            assertEquals("alice:alice:alice, cache size: 0, TenantConfigResolver: false, refresh_token:refresh1234",
+                    textPage.getContent());
 
             assertNull(getStateCookie(webClient, "code-flow-user-info-github-cached-in-idtoken"));
 
@@ -343,10 +376,16 @@ public class CodeFlowAuthorizationTest {
             // be returned to Quarkus, analyzed and refreshed
             assertTrue(date.toInstant().getEpochSecond() - issuedAt <= 299 + 300 + 3);
 
-            // refresh
+            // This is the initial call to  the token endpoint where the code was exchanged for tokens
+            wireMockServer.verify(1,
+                    postRequestedFor(urlPathMatching("/auth/realms/quarkus/access_token_refreshed")));
+            wireMockServer.resetRequests();
+
+            // refresh: refresh token in JWT format
             Thread.sleep(3000);
             textPage = webClient.getPage("http://localhost:8081/code-flow-user-info-github-cached-in-idtoken");
-            assertEquals("alice:alice:bob, cache size: 0, TenantConfigResolver: false", textPage.getContent());
+            assertEquals("alice:alice:bob, cache size: 0, TenantConfigResolver: false, refresh_token:" + refreshJwtToken,
+                    textPage.getContent());
 
             idTokenClaims = decryptIdToken(webClient, "code-flow-user-info-github-cached-in-idtoken");
             assertNotNull(idTokenClaims.getJsonObject(OidcUtils.USER_INFO_ATTRIBUTE));
@@ -359,6 +398,27 @@ public class CodeFlowAuthorizationTest {
             date = sessionCookie.getExpires();
             assertTrue(date.toInstant().getEpochSecond() - issuedAt >= 305 + 300);
             assertTrue(date.toInstant().getEpochSecond() - issuedAt <= 305 + 300 + 3);
+
+            // access token must've been refreshed
+            wireMockServer.verify(1,
+                    postRequestedFor(urlPathMatching("/auth/realms/quarkus/access_token_refreshed")));
+            wireMockServer.resetRequests();
+
+            Thread.sleep(3000);
+            // Refresh token is available but it is expired, so no token endpoint call is expected
+            assertTrue((System.currentTimeMillis() / 1000) > OidcUtils.decodeJwtContent(refreshJwtToken)
+                    .getLong(Claims.exp.name()));
+
+            webClient.getOptions().setRedirectEnabled(false);
+            WebResponse webResponse = webClient
+                    .loadWebResponse(new WebRequest(
+                            URI.create("http://localhost:8081/code-flow-user-info-github-cached-in-idtoken").toURL()));
+            assertEquals(302, webResponse.getStatusCode());
+
+            // no another token endpoint call is made:
+            wireMockServer.verify(0,
+                    postRequestedFor(urlPathMatching("/auth/realms/quarkus/access_token_refreshed")));
+            wireMockServer.resetRequests();
 
             webClient.getCookieManager().clearCookies();
         }
@@ -392,21 +452,37 @@ public class CodeFlowAuthorizationTest {
                         Assertions.assertTrue(Files.exists(accessLogFilePath),
                                 "quarkus log file " + accessLogFilePath + " is missing");
 
-                        boolean signedUserInfoLogDetected = false;
+                        boolean lineConfirmingVerificationDetected = false;
+                        boolean signedUserInfoResponseFilterMessageDetected = false;
+                        boolean codeFlowCompletedResponseFilterMessageDetected = false;
 
                         try (BufferedReader reader = new BufferedReader(
                                 new InputStreamReader(new ByteArrayInputStream(Files.readAllBytes(accessLogFilePath)),
                                         StandardCharsets.UTF_8))) {
-                            String line = null;
+                            String line;
                             while ((line = reader.readLine()) != null) {
                                 if (line.contains("Verifying the signed UserInfo with the local JWK keys: ey")) {
-                                    signedUserInfoLogDetected = true;
+                                    lineConfirmingVerificationDetected = true;
+                                } else if (line.contains("Response contains signed UserInfo")) {
+                                    signedUserInfoResponseFilterMessageDetected = true;
+                                } else if (line.contains(
+                                        "Authorization code completed for tenant 'code-flow-user-info-github-cached-in-idtoken'")) {
+                                    codeFlowCompletedResponseFilterMessageDetected = true;
+                                }
+                                if (lineConfirmingVerificationDetected
+                                        && signedUserInfoResponseFilterMessageDetected
+                                        && codeFlowCompletedResponseFilterMessageDetected) {
                                     break;
                                 }
                             }
+
                         }
-                        assertTrue(signedUserInfoLogDetected,
+                        assertTrue(lineConfirmingVerificationDetected,
+                                "Log file must contain a record confirming that signed UserInfo is verified");
+                        assertTrue(signedUserInfoResponseFilterMessageDetected,
                                 "Log file must contain a record confirming that signed UserInfo is returned");
+                        assertTrue(codeFlowCompletedResponseFilterMessageDetected,
+                                "Log file must contain a record confirming that the code flow is completed");
 
                     }
                 });
@@ -573,7 +649,7 @@ public class CodeFlowAuthorizationTest {
 
     }
 
-    private void defineCodeFlowUserInfoCachedInIdTokenStub() {
+    private void defineCodeFlowUserInfoCachedInIdTokenStub(String expiredRefreshToken) {
         wireMockServer
                 .stubFor(WireMock.post(urlPathMatching("/auth/realms/quarkus/access_token_refreshed"))
                         .withHeader("X-Custom", matching("XCustomHeaderValue"))
@@ -610,14 +686,16 @@ public class CodeFlowAuthorizationTest {
                                 .withBody("{\n" +
                                         "  \"access_token\": \""
                                         + OidcWiremockTestResource.getAccessToken("bob", Set.of()) + "\","
-                                        + "\"expires_in\": 305"
+                                        + " \"expires_in\": 305,"
+                                        + " \"refresh_token\": \""
+                                        + expiredRefreshToken + "\""
                                         + "}")));
 
         wireMockServer.stubFor(
                 get(urlEqualTo("/auth/realms/quarkus/protocol/openid-connect/signeduserinfo"))
                         .withHeader("Authorization", containing("Bearer ey"))
                         .willReturn(aResponse()
-                                .withHeader("Content-Type", "application/jwt")
+                                .withHeader("Content-Type", " application/jwt ; charset=UTF-8")
                                 .withBody(
                                         Jwt.preferredUserName("alice")
                                                 .issuer("https://server.example.com")
@@ -625,6 +703,20 @@ public class CodeFlowAuthorizationTest {
                                                 .jws()
                                                 .keyId("1").sign("privateKey.jwk"))));
 
+    }
+
+    private void defineCodeFlowOpaqueAccessTokenStub() {
+        wireMockServer
+                .stubFor(WireMock.post(urlPathMatching("/auth/realms/quarkus/opaque-access-token"))
+                        .willReturn(WireMock.aResponse()
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("{\n" +
+                                        "  \"access_token\": \"alice\","
+                                        + "\"expires_in\": 299}")));
+    }
+
+    private String generateAlreadyExpiredRefreshToken() {
+        return Jwt.claims().expiresIn(0).signWithSecret("0123456789ABCDEF0123456789ABCDEF");
     }
 
     private void defineCodeFlowTokenIntrospectionStub() {

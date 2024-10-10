@@ -310,6 +310,12 @@ public class HttpConfiguration {
     @ConfigDocSection
     public ProxyConfig proxy;
 
+    /**
+     * WebSocket Server configuration.
+     */
+    @ConfigDocSection
+    public WebsocketServerConfig websocketServer;
+
     public int determinePort(LaunchMode launchMode) {
         return launchMode == LaunchMode.TEST ? testPort : port;
     }
@@ -327,5 +333,6 @@ public class HttpConfiguration {
     public enum PayloadHint {
         JSON,
         HTML,
+        TEXT
     }
 }

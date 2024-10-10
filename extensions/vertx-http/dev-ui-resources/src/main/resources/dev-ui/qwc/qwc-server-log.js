@@ -136,11 +136,7 @@ export class QwcServerLog extends QwcAbstractLogElement {
     connectedCallback() {
         super.connectedCallback();
         this._toggleOnOff(true);
-        this.jsonRpc.history().then(jsonRpcResponse => {
-            jsonRpcResponse.result.forEach(entry => {
-                this._addLogEntry(entry);
-            });
-        });
+        this._history();
         this._loadAllLoggers();
     }
     
@@ -616,7 +612,16 @@ export class QwcServerLog extends QwcAbstractLogElement {
         // Stop then start / start then stop
         this._stopStartLog();
         this._stopStartLog();
+        this._history();
         this._loadAllLoggers();
+    }
+    
+    _history(){
+        this.jsonRpc.history().then(jsonRpcResponse => {
+            jsonRpcResponse.result.forEach(entry => {
+                this._addLogEntry(entry);
+            });
+        });
     }
     
     _toggleFollowLog(e){

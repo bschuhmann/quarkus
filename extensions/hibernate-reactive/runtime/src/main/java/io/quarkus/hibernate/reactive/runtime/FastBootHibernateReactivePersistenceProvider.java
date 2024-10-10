@@ -18,6 +18,7 @@ import org.hibernate.boot.registry.StandardServiceInitiator;
 import org.hibernate.boot.registry.StandardServiceRegistry;
 import org.hibernate.boot.registry.internal.StandardServiceRegistryImpl;
 import org.hibernate.cfg.AvailableSettings;
+import org.hibernate.jpa.HibernateHints;
 import org.hibernate.jpa.boot.spi.EntityManagerFactoryBuilder;
 import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
 import org.hibernate.reactive.provider.service.ReactiveGenerationTarget;
@@ -191,7 +192,7 @@ public final class FastBootHibernateReactivePersistenceProvider implements Persi
             RuntimeSettings runtimeSettings = runtimeSettingsBuilder.build();
 
             StandardServiceRegistry standardServiceRegistry = rewireMetadataAndExtractServiceRegistry(
-                    runtimeSettings, recordedState, persistenceUnitName);
+                    persistenceUnitName, recordedState, runtimeSettings, puConfig);
 
             final Object cdiBeanManager = Arc.container().beanManager();
             final Object validatorFactory = Arc.container().instance("quarkus-hibernate-validator-factory").get();
@@ -208,11 +209,10 @@ public final class FastBootHibernateReactivePersistenceProvider implements Persi
         return null;
     }
 
-    private StandardServiceRegistry rewireMetadataAndExtractServiceRegistry(RuntimeSettings runtimeSettings,
-            RecordedState rs,
-            String persistenceUnitName) {
+    private StandardServiceRegistry rewireMetadataAndExtractServiceRegistry(String persistenceUnitName, RecordedState rs,
+            RuntimeSettings runtimeSettings, HibernateOrmRuntimeConfigPersistenceUnit puConfig) {
         PreconfiguredReactiveServiceRegistryBuilder serviceRegistryBuilder = new PreconfiguredReactiveServiceRegistryBuilder(
-                persistenceUnitName, rs);
+                persistenceUnitName, rs, puConfig);
 
         registerVertxAndPool(persistenceUnitName, runtimeSettings, serviceRegistryBuilder);
 
@@ -361,6 +361,9 @@ public final class FastBootHibernateReactivePersistenceProvider implements Persi
             runtimeSettingsBuilder.put(AvailableSettings.LOG_SLOW_QUERY,
                     persistenceUnitConfig.log().queriesSlowerThanMs().get());
         }
+
+        runtimeSettingsBuilder.put(HibernateHints.HINT_FLUSH_MODE,
+                persistenceUnitConfig.flush().mode());
     }
 
     @Override

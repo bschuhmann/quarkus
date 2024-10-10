@@ -3,6 +3,8 @@ package io.quarkus.hibernate.orm.runtime;
 import java.util.Map;
 import java.util.Optional;
 
+import org.hibernate.FlushMode;
+
 import io.quarkus.runtime.annotations.ConfigDocDefault;
 import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigDocSection;
@@ -10,6 +12,7 @@ import io.quarkus.runtime.annotations.ConfigGroup;
 import io.quarkus.runtime.configuration.TrimmedStringConverter;
 import io.smallrye.config.WithConverter;
 import io.smallrye.config.WithDefault;
+import io.smallrye.config.WithName;
 import io.smallrye.config.WithParentName;
 
 @ConfigGroup
@@ -49,6 +52,12 @@ public interface HibernateOrmRuntimeConfigPersistenceUnit {
      */
     @ConfigDocSection
     HibernateOrmConfigPersistenceUnitLog log();
+
+    /**
+     * Flush configuration.
+     */
+    @ConfigDocSection
+    HibernateOrmConfigPersistenceUnitFlush flush();
 
     /**
      * Properties that should be passed on directly to Hibernate ORM.
@@ -93,6 +102,23 @@ public interface HibernateOrmRuntimeConfigPersistenceUnit {
         @WithConverter(TrimmedStringConverter.class)
         Optional<String> defaultSchema();
 
+        /**
+         * Whether Hibernate ORM should check on startup
+         * that the version of the database matches the version configured on the dialect
+         * (either the default version, or the one set through `quarkus.datasource.db-version`).
+         *
+         * This should be set to `false` if the database is not available on startup.
+         *
+         * @asciidoclet
+         */
+        // TODO change the default to "always enabled" when we solve version detection problems
+        //   See https://github.com/quarkusio/quarkus/issues/43703
+        //   See https://github.com/quarkusio/quarkus/issues/42255
+        // TODO disable the check by default when offline startup is opted in
+        //   See https://github.com/quarkusio/quarkus/issues/13522
+        @WithName("version-check.enabled")
+        @ConfigDocDefault("`true` if the dialect was set automatically by Quarkus, `false` if it was set explicitly")
+        Optional<Boolean> versionCheckEnabled();
     }
 
     @ConfigGroup
@@ -198,6 +224,23 @@ public interface HibernateOrmRuntimeConfigPersistenceUnit {
          */
         Optional<Long> queriesSlowerThanMs();
 
+    }
+
+    @ConfigGroup
+    interface HibernateOrmConfigPersistenceUnitFlush {
+        /**
+         * The default flushing strategy, or when to flush entities to the database in a Hibernate session:
+         * before every query, on commit, ...
+         *
+         * This default can be overridden on a per-session basis with `Session#setHibernateFlushMode()`
+         * or on a per-query basis with the hint `HibernateHints#HINT_FLUSH_MODE`.
+         *
+         * See the javadoc of `org.hibernate.FlushMode` for details.
+         *
+         * @asciidoclet
+         */
+        @WithDefault("auto")
+        FlushMode mode();
     }
 
 }

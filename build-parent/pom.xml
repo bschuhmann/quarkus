@@ -26,6 +26,7 @@
         <scala-maven-plugin.version>4.9.2</scala-maven-plugin.version>
         <!-- not pretty but this is used in the codestarts and we don't want to break compatibility -->
         <scala-plugin.version>${scala-maven-plugin.version}</scala-plugin.version>
+        <jboss-bridger-plugin.version>1.6.Final</jboss-bridger-plugin.version>
 
         <!-- Jandex versions -->
         <jandex.version>3.2.2</jandex.version>
@@ -33,13 +34,13 @@
 
         <asciidoctorj.version>2.5.13</asciidoctorj.version>
         <htmlunit.version>4.3.0</htmlunit.version>
-        <javaparser-core.version>3.26.1</javaparser-core.version>
+        <javaparser-core.version>3.26.2</javaparser-core.version>
         <jdeparser.version>2.0.3.Final</jdeparser.version>
         <subethasmtp.version>6.0.1</subethasmtp.version>
 
         <!-- Dev tools -->
         <freemarker.version>2.3.33</freemarker.version>
-        <commonmark.version>0.22.0</commonmark.version>
+        <commonmark.version>0.23.0</commonmark.version>
 
         <!-- Arquillian BOM -->
         <arquillian.version>1.7.0.Final</arquillian.version>
@@ -95,7 +96,7 @@
 
         <!-- The image to use for tests that run Keycloak -->
         <!-- IMPORTANT: If this is changed you must also update bom/application/pom.xml and KeycloakBuildTimeConfig/DevServicesConfig in quarkus-oidc/deployment to match the version -->
-        <keycloak.version>25.0.4</keycloak.version>
+        <keycloak.version>25.0.6</keycloak.version>
         <keycloak.wildfly.version>19.0.3</keycloak.wildfly.version>
         <keycloak.docker.image>quay.io/keycloak/keycloak:${keycloak.version}</keycloak.docker.image>
         <keycloak.docker.legacy.image>quay.io/keycloak/keycloak:${keycloak.wildfly.version}-legacy</keycloak.docker.legacy.image>
@@ -114,7 +115,7 @@
         <jacoco.agent.argLine></jacoco.agent.argLine>
 
         <asciidoctor-maven-plugin.version>2.0.0</asciidoctor-maven-plugin.version>
-        <docker-maven-plugin.version>0.45.0</docker-maven-plugin.version>
+        <docker-maven-plugin.version>0.45.1</docker-maven-plugin.version>
         <maven-invoker-plugin.version>3.8.0</maven-invoker-plugin.version>
 
         <!-- revapi API check -->
@@ -597,7 +598,7 @@
                         <dependency>
                             <groupId>org.apache.groovy</groupId>
                             <artifactId>groovy</artifactId>
-                            <version>4.0.22</version>
+                            <version>4.0.23</version>
                         </dependency>
                     </dependencies>
                 </plugin>
@@ -645,7 +646,20 @@
                         </execution>
                     </executions>
                 </plugin>
-
+                <plugin>
+                    <groupId>org.jboss.bridger</groupId>
+                    <artifactId>bridger</artifactId>
+                    <version>${jboss-bridger-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>weave</id>
+                            <phase>process-classes</phase>
+                            <goals>
+                                <goal>transform</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>

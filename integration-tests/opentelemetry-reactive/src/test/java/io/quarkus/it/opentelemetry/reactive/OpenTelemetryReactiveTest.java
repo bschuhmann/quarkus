@@ -22,6 +22,7 @@ import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,8 +42,14 @@ public class OpenTelemetryReactiveTest {
     @BeforeEach
     @AfterEach
     void reset() {
-        given().get("/reset").then().statusCode(HTTP_OK);
-        await().atMost(5, SECONDS).until(() -> getSpans().size() == 0);
+        await().atMost(Duration.ofSeconds(30L)).until(() -> {
+            // make sure spans are cleared
+            List<Map<String, Object>> spans = getSpans();
+            if (!spans.isEmpty()) {
+                given().get("/reset").then().statusCode(HTTP_OK);
+            }
+            return spans.isEmpty();
+        });
     }
 
     @Test
@@ -248,26 +255,26 @@ public class OpenTelemetryReactiveTest {
 
     @Test
     public void securedInvalidCredential() {
-        given().auth().preemptive().basic("scott", "reader2").when().get("/secured/item/something")
+        given().auth().preemptive().basic("scott", "reader2").when().get("/foo/secured/item/something")
                 .then()
                 .statusCode(401);
 
         await().atMost(5, SECONDS).until(() -> getSpans().size() == 1);
         assertThat(getSpans()).singleElement().satisfies(m -> {
-            assertThat(m).extractingByKey("name").isEqualTo("GET /secured/item/{value}");
+            assertThat(m).extractingByKey("name").isEqualTo("GET /{dummy}/secured/item/{value}");
             assertEvent(m, SecurityEventUtil.AUTHN_FAILURE_EVENT_NAME);
         });
     }
 
     @Test
     public void securedProperCredentials() {
-        given().auth().preemptive().basic("scott", "reader").when().get("/secured/item/something")
+        given().auth().preemptive().basic("scott", "reader").when().get("/foo/secured/item/something")
                 .then()
                 .statusCode(200);
 
         await().atMost(5, SECONDS).until(() -> getSpans().size() == 1);
         assertThat(getSpans()).singleElement().satisfies(m -> {
-            assertThat(m).extractingByKey("name").isEqualTo("GET /secured/item/{value}");
+            assertThat(m).extractingByKey("name").isEqualTo("GET /{dummy}/secured/item/{value}");
             assertEvent(m, SecurityEventUtil.AUTHN_SUCCESS_EVENT_NAME, SecurityEventUtil.AUTHZ_SUCCESS_EVENT_NAME);
         });
     }
