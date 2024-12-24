@@ -207,6 +207,18 @@ quarkus.oidc.credentials.jwt.key-id=mykeyAlias
 
 Using `client_secret_jwt` or `private_key_jwt` authentication methods ensures that a client secret does not get sent to the OIDC provider, therefore avoiding the risk of a secret being intercepted by a  'man-in-the-middle' attack.
 
+.Example how JWT Bearer token can be used to authenticate client
+
+[source,properties]
+----
+quarkus.oidc.auth-server-url=http://localhost:8180/realms/quarkus/
+quarkus.oidc.client-id=quarkus-app
+quarkus.oidc.credentials.jwt.source=bearer <1>
+quarkus.oidc.credentials.jwt.token-path=/var/run/secrets/tokens <2>
+----
+<1> Use JWT bearer token to authenticate OIDC provider client, see the link:https://www.rfc-editor.org/rfc/rfc7523#section-2.2[Using JWTs for Client Authentication] section for more information.
+<2> Path to a JWT bearer token. Quarkus loads a new token from a filesystem and reloads it when the token has expired.
+
 ==== Additional JWT authentication options
 
 If `client_secret_jwt`, `private_key_jwt`, or an Apple `post_jwt` authentication methods are used, then you can customize the JWT signature algorithm, key identifier, audience, subject and issuer.
@@ -288,7 +300,7 @@ quarkus.tls.oidc.trust-store.p12.password=${trust-store-password}
 
 ==== POST query
 
-Some providers, such as the xref:security-openid-connect-providers#strava[Strava OAuth2 provider], require client credentials be posted as HTTP POST query parameters:
+Some providers, such as the xref:security-openid-connect-providers.adoc#strava[Strava OAuth2 provider], require client credentials be posted as HTTP POST query parameters:
 
 [source,properties]
 ----
@@ -392,9 +404,8 @@ package io.quarkus.it.keycloak;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
-import org.jboss.logging.Logger;
-
 import io.quarkus.arc.Unremovable;
+import io.quarkus.logging.Log;
 import io.quarkus.oidc.common.OidcEndpoint;
 import io.quarkus.oidc.common.OidcEndpoint.Type;
 import io.quarkus.oidc.common.OidcResponseFilter;
@@ -405,7 +416,6 @@ import io.quarkus.oidc.runtime.OidcUtils;
 @Unremovable
 @OidcEndpoint(value = Type.TOKEN) <1>
 public class TokenEndpointResponseFilter implements OidcResponseFilter {
-    private static final Logger LOG = Logger.getLogger(TokenResponseFilter.class);
 
     @Override
     public void filter(OidcResponseContext rc) {
@@ -414,7 +424,7 @@ public class TokenEndpointResponseFilter implements OidcResponseFilter {
                 && OidcConstants.AUTHORIZATION_CODE.equals(rc.requestProperties().get(OidcConstants.GRANT_TYPE)) <3>
                 && "code-flow-user-info-cached-in-idtoken".equals(rc.requestProperties().get(OidcUtils.TENANT_ID_ATTRIBUTE)) <3>
                 && rc.responseBody().toJsonObject().containsKey("id_token")) { <4>
-            LOG.debug("Authorization code completed for tenant 'code-flow-user-info-cached-in-idtoken'");
+            Log.debug("Authorization code completed for tenant 'code-flow-user-info-cached-in-idtoken'");
         }
     }
 }
@@ -1843,7 +1853,7 @@ To import a custom realm file into Keycloak before running the tests, configure 
 quarkus.keycloak.devservices.realm-path=quarkus-realm.json
 ----
 
-Finally, write the test code as described in the <<code-flow-integration-testing-wiremock,Wiremock>> section.  
+Finally, write the test code as described in the <<code-flow-integration-testing-wiremock,Wiremock>> section.
 The only difference is that `@QuarkusTestResource` is no longer required:
 
 [source, java]
