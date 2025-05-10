@@ -743,6 +743,22 @@ public abstract class AbstractSimpleJsonTest {
     }
 
     @Test
+    public void testKotlinDataEcho() {
+        RestAssured
+                .with()
+                .body("{\"access_token\":\"ABC\",\"expires_in\":3600}")
+                .contentType("application/json; charset=utf-8")
+                .post("/simple/kotlin-data-echo")
+                .then()
+                .statusCode(200)
+                .contentType("application/json")
+                .body("access_token", Matchers.is("ABC"))
+                .body("expires_in", Matchers.is(3600))
+                .extract()
+                .asString();
+    }
+
+    @Test
     public void testNullMapEcho() {
         RestAssured
                 .with()
@@ -778,6 +794,46 @@ public abstract class AbstractSimpleJsonTest {
                 .body("email", Matchers.is("E-mail"))
                 .body("nameExtended", Matchers.is("Name-Extended"))
                 .body("emailExtended", Matchers.is(emptyOrNullString()));
+    }
+
+    @Test
+    void testJsonValuePublicMethod() {
+        RestAssured.given()
+                .queryParam("value", 240)
+                .post("/simple/json-value-public-method")
+                .then()
+                .statusCode(200)
+                .body(Matchers.equalTo("\"" + Integer.toString(240) + "\""));
+    }
+
+    @Test
+    void testJsonValuePublicField() {
+        RestAssured.given()
+                .queryParam("value", 368)
+                .post("/simple/json-value-public-field")
+                .then()
+                .statusCode(200)
+                .body(Matchers.equalTo(Integer.toString(368)));
+    }
+
+    @Test
+    void testJsonValuePrivateMethod() {
+        RestAssured.given()
+                .queryParam("value", 256)
+                .post("/simple/json-value-private-method")
+                .then()
+                .statusCode(200)
+                .body(Matchers.equalTo("\"" + Integer.toString(256) + "\""));
+    }
+
+    @Test
+    void testJsonValuePrivateField() {
+        RestAssured.given()
+                .queryParam("value", 795)
+                .post("/simple/json-value-private-field")
+                .then()
+                .statusCode(200)
+                .body(Matchers.equalTo(Integer.toString(795)));
     }
 
     @Test
