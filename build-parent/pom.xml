@@ -33,14 +33,14 @@
         <jandex-gradle-plugin.version>1.0.0</jandex-gradle-plugin.version>
 
         <asciidoctorj.version>2.5.13</asciidoctorj.version>
-        <htmlunit.version>4.13.0</htmlunit.version>
+        <htmlunit.version>4.14.0</htmlunit.version>
         <javaparser-core.version>3.27.0</javaparser-core.version>
         <jdeparser.version>2.0.3.Final</jdeparser.version>
         <subethasmtp.version>6.0.1</subethasmtp.version>
 
         <!-- Dev tools -->
         <freemarker.version>2.3.34</freemarker.version>
-        <commonmark.version>0.25.0</commonmark.version>
+        <commonmark.version>0.25.1</commonmark.version>
         <jgit.version>7.3.0.202506031305-r</jgit.version>
 
         <!-- Arquillian BOM -->
